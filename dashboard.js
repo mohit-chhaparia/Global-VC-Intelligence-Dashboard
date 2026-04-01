@@ -1,5 +1,5 @@
 // Configuration
-const DATA_PATH = '../data/'; // Adjust based on your structure
+const DATA_PATH = './data/';
 let allDeals = [];
 let filteredDeals = [];
 let nations = [];
