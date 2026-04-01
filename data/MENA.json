@@ -1,0 +1,34 @@
+{
+  "deals": [
+    {
+      "Country": "Egypt",
+      "Startup_Name": "Hamilton Labs",
+      "Description": "Fintech company developing USDh, a permissionless stablecoin pegged to the dollar. It aims to connect emerging markets to global dollar liquidity and sovereign yield opportunities.",
+      "Amount": "Undisclosed",
+      "Round": "Strategic Investment",
+      "Investors": "AXIAN Investment",
+      "Founders": "Mo Kasstawi",
+      "LinkedIn_Profile": "N/A",
+      "Hiring": "Unknown",
+      "Careers_Link": "N/A",
+      "Date_Captured": "2026-04-01"
+    },
+    {
+      "Country": "France",
+      "Startup_Name": "Advanced Machine Intelligence Labs (AMI Labs)",
+      "Description": "Developing AI systems based on \u201cworld models,\u201d designed to learn from spatial and real-world data rather than primarily predicting text or images.",
+      "Amount": "1030000000 USD",
+      "Round": "Seed",
+      "Investors": "Shorooq, Cathay Innovation, Greycroft, Hiro Capital, HV Capital, Bezos Expeditions, Temasek, Nvidia, SBVA, Mark Cuban, Eric Schmidt, Xavier Niel",
+      "Founders": "Yann LeCun, Alexandre LeBrun",
+      "LinkedIn_Profile": "N/A",
+      "Hiring": "Unknown",
+      "Careers_Link": "N/A",
+      "Tier": "Tier 4",
+      "Nation": "MENA",
+      "Flag": "MENA - N/A",
+      "Date_Captured": "2026-04-01"
+    }
+  ],
+  "last_updated": "2026-04-01 07:17"
+}

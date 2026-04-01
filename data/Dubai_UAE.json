@@ -1,0 +1,53 @@
+{
+  "deals": [
+    {
+      "Startup_Name": "NodeShift",
+      "Description": "NodeShift is a UAE-based startup that recently secured seed funding. It is partnering with Presight to scale sovereign AI solutions globally.",
+      "Amount": "Undisclosed",
+      "Round": "Seed",
+      "Investors": "Presight and 1 more",
+      "Founders": "",
+      "LinkedIn_Profile": "",
+      "Hiring": "",
+      "Careers_Link": "",
+      "Date_Captured": "2026-04-01"
+    },
+    {
+      "Startup_Name": "Advanced Digital Gaming Technology (ADGT)",
+      "Description": "UAE-based payments and data intelligence platform supporting regulated digital markets globally, integrating digital wallets, real-time payment rails, identity management, and compliance systems.",
+      "Amount": "$250 million",
+      "Round": "Investment",
+      "Investors": "Blackstone, Raya Holding, NRT Technology, Sightline Payments",
+      "Founders": "Michael Dominelli",
+      "LinkedIn_Profile": "N/A",
+      "Hiring": "Unknown",
+      "Careers_Link": "N/A",
+      "Date_Captured": "2026-04-01"
+    },
+    {
+      "Startup_Name": "zypl.ai",
+      "Description": "UAE-based AI company applying synthetic data for AI decisioning in financial services, developing synthetic data solutions for financial institutions, powered by its proprietary zGAN model.",
+      "Amount": "$5.5 million",
+      "Round": "Bridge round",
+      "Investors": "Carbide Ventures, Shukhrat Ibragimov",
+      "Founders": "Azizjon Azimi",
+      "LinkedIn_Profile": "https://www.linkedin.com/in/azizjonazimi/",
+      "Hiring": "Yes",
+      "Careers_Link": "https://zypl.ai/career",
+      "Date_Captured": "2026-04-01"
+    },
+    {
+      "Startup_Name": "Mezza",
+      "Description": "A UAE-based hospitality platform that provides restaurants with upfront capital by selling dining credit in advance. It combines financial support with marketing technology to drive customer acquisition and ensure steady cash flow for partner venues.",
+      "Amount": "Undisclosed",
+      "Round": "Seed",
+      "Investors": "Founders of PropertyFinder, Founders of Jellysmack, Chairman of Deel, prominent angel investors",
+      "Founders": "Kevin Boubil",
+      "LinkedIn_Profile": "N/A",
+      "Hiring": "Unknown",
+      "Careers_Link": "N/A",
+      "Date_Captured": "2026-04-01"
+    }
+  ],
+  "last_updated": "2026-04-01 04:38"
+}
