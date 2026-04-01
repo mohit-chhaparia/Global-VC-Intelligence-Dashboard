@@ -1,5 +1,5 @@
 // Configuration
-const DATA_PATH = '../data/';
+const DATA_PATH = './data/';
 let allDeals = [];
 let filteredDeals = [];
 let nations = [];
@@ -107,31 +107,40 @@ async function loadData() {
     }
 }
 
-// Detect available nation files
 async function detectNationFiles() {
+    // Updated to match your actual file names from the screenshot
     const potentialNations = [
-        'Britain', 'USA', 'China', 'Germany', 'France', 
-        'India', 'Canada', 'Australia', 'Japan', 'Singapore',
-        'Israel', 'South Korea', 'Netherlands', 'Sweden', 'Switzerland',
-        'Brazil', 'Mexico', 'Spain', 'Italy', 'Poland'
+        'Britain',      // Britain.json
+        'Canada',       // Canada.json  
+        'Dubai_UAE',    // Dubai_UAE.json (not UAE.json!)
+        'India',        // India.json
+        'Israel',       // Israel.json
+        'MENA',         // MENA.json
+        'Singapore',    // Singapore.json
+        'UAE',          // UAE.json
+        'USA'           // USA.json
     ];
     
     const availableNations = [];
     
     for (const nation of potentialNations) {
         try {
-            const response = await fetch(`${DATA_PATH}${nation}.json`, { method: 'HEAD' });
+            console.log(`🔍 Checking: ${DATA_PATH}${nation}.json`);
+            const response = await fetch(`${DATA_PATH}${nation}.json`);
             if (response.ok) {
                 availableNations.push(nation);
+                console.log(`✅ Found: ${nation}.json`);
+            } else {
+                console.log(`❌ Not found (${response.status}): ${nation}.json`);
             }
         } catch (error) {
-            // File doesn't exist, skip silently
+            console.log(`❌ Error loading ${nation}.json:`, error.message);
         }
     }
     
+    console.log(`📊 Total nations found: ${availableNations.length}`, availableNations);
     return availableNations;
 }
-
 // Populate nation filter checkboxes
 function populateNationFilter() {
     const container = document.getElementById('nation-checkboxes');
