@@ -8,32 +8,40 @@ let currentSort = { column: null, direction: 'asc' };
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('🚀 Dashboard initializing...');
     loadData();
-    setupEventListeners();
 });
 
-// Setup event listeners
+// Setup event listeners after DOM is loaded
 function setupEventListeners() {
     // Multi-select nation dropdown
-    document.getElementById('nation-select-btn').addEventListener('click', toggleNationDropdown);
-    document.getElementById('select-all-nations').addEventListener('click', selectAllNations);
-    document.getElementById('clear-all-nations').addEventListener('click', clearAllNations);
+    const nationBtn = document.getElementById('nation-select-btn');
+    const selectAll = document.getElementById('select-all-nations');
+    const clearAll = document.getElementById('clear-all-nations');
+    
+    if (nationBtn) nationBtn.addEventListener('click', toggleNationDropdown);
+    if (selectAll) selectAll.addEventListener('click', selectAllNations);
+    if (clearAll) clearAll.addEventListener('click', clearAllNations);
     
     // Date range filters
-    document.getElementById('date-from').addEventListener('change', filterDeals);
-    document.getElementById('date-to').addEventListener('change', filterDeals);
+    const dateFrom = document.getElementById('date-from');
+    const dateTo = document.getElementById('date-to');
+    if (dateFrom) dateFrom.addEventListener('change', filterDeals);
+    if (dateTo) dateTo.addEventListener('change', filterDeals);
     
     // Search
-    document.getElementById('search').addEventListener('input', filterDeals);
+    const search = document.getElementById('search');
+    if (search) search.addEventListener('input', filterDeals);
     
     // Reset filters
-    document.getElementById('reset-filters').addEventListener('click', resetFilters);
+    const resetBtn = document.getElementById('reset-filters');
+    if (resetBtn) resetBtn.addEventListener('click', resetFilters);
     
     // Close dropdown when clicking outside
     document.addEventListener('click', (e) => {
         const dropdown = document.getElementById('nation-dropdown');
         const button = document.getElementById('nation-select-btn');
-        if (!dropdown.contains(e.target) && !button.contains(e.target)) {
+        if (dropdown && button && !dropdown.contains(e.target) && !button.contains(e.target)) {
             dropdown.classList.add('hidden');
         }
     });
@@ -59,28 +67,38 @@ async function loadData() {
         // Load data from each nation
         for (const nation of nations) {
             try {
+                console.log(`📥 Loading: ${DATA_PATH}${nation}.json`);
                 const response = await fetch(`${DATA_PATH}${nation}.json`);
+                
+                if (!response.ok) {
+                    console.error(`❌ HTTP ${response.status} for ${nation}.json`);
+                    continue;
+                }
+                
                 const data = await response.json();
+                console.log(`📊 ${nation} data structure:`, Object.keys(data));
                 
                 if (data.deals && Array.isArray(data.deals)) {
                     // Add nation metadata to each deal
                     data.deals.forEach(deal => {
                         deal.Nation = nation;
-                        deal.Flag = deal.Flag || getCountryFlag(nation);
-                        // Normalize date field
+                        deal.Flag = getCountryFlag(nation);
                         deal.Date = deal.Date_Captured || deal.Date || '';
                     });
                     
                     allDeals = allDeals.concat(data.deals);
                     console.log(`✅ Loaded ${data.deals.length} deals from ${nation}`);
+                } else {
+                    console.warn(`⚠️ No deals array in ${nation}.json`);
                 }
             } catch (error) {
-                console.warn(`⚠️ Failed to load ${nation}:`, error);
+                console.error(`⚠️ Failed to load ${nation}:`, error);
             }
         }
         
         if (allDeals.length === 0) {
-            showError('No deals found in the data files.');
+            showError('No deals found in the data files. Please check the JSON structure.');
+            console.error('❌ No deals loaded from any file');
             return;
         }
         
@@ -92,6 +110,9 @@ async function loadData() {
         // Set default date range (last 90 days)
         setDefaultDateRange();
         
+        // Setup event listeners now that we have data
+        setupEventListeners();
+        
         // Initial display
         filteredDeals = [...allDeals];
         displayStats(filteredDeals);
@@ -100,50 +121,49 @@ async function loadData() {
         await updateLastUpdated();
         
         showLoading(false);
+        console.log('✅ Dashboard loaded successfully!');
     } catch (error) {
-        console.error('❌ Error loading data:', error);
+        console.error('❌ Critical error loading data:', error);
         showError(`Failed to load data: ${error.message}`);
         showLoading(false);
     }
 }
 
+// Detect available nation files
 async function detectNationFiles() {
-    // Updated to match your actual file names from the screenshot
     const potentialNations = [
-        'Britain',      // Britain.json
-        'Canada',       // Canada.json  
-        'Dubai_UAE',    // Dubai_UAE.json (not UAE.json!)
-        'India',        // India.json
-        'Israel',       // Israel.json
-        'MENA',         // MENA.json
-        'Singapore',    // Singapore.json
-        'UAE',          // UAE.json
-        'USA'           // USA.json
+        'Britain',
+        'Canada',
+        'Dubai_UAE',
+        'India',
+        'Israel',
+        'MENA',
+        'Singapore',
+        'UAE',
+        'USA'
     ];
     
     const availableNations = [];
     
     for (const nation of potentialNations) {
         try {
-            console.log(`🔍 Checking: ${DATA_PATH}${nation}.json`);
-            const response = await fetch(`${DATA_PATH}${nation}.json`);
+            const response = await fetch(`${DATA_PATH}${nation}.json`, { method: 'HEAD' });
             if (response.ok) {
                 availableNations.push(nation);
-                console.log(`✅ Found: ${nation}.json`);
-            } else {
-                console.log(`❌ Not found (${response.status}): ${nation}.json`);
             }
         } catch (error) {
-            console.log(`❌ Error loading ${nation}.json:`, error.message);
+            // File doesn't exist, skip
         }
     }
     
-    console.log(`📊 Total nations found: ${availableNations.length}`, availableNations);
     return availableNations;
 }
+
 // Populate nation filter checkboxes
 function populateNationFilter() {
     const container = document.getElementById('nation-checkboxes');
+    if (!container) return;
+    
     container.innerHTML = '';
     
     nations.sort().forEach(nation => {
@@ -183,7 +203,9 @@ function handleNationCheckbox(e) {
 function toggleNationDropdown(e) {
     e.stopPropagation();
     const dropdown = document.getElementById('nation-dropdown');
-    dropdown.classList.toggle('hidden');
+    if (dropdown) {
+        dropdown.classList.toggle('hidden');
+    }
 }
 
 // Select all nations
@@ -211,6 +233,8 @@ function clearAllNations(e) {
 // Update nation button text
 function updateNationButtonText() {
     const button = document.getElementById('nation-select-btn');
+    if (!button) return;
+    
     const count = selectedNations.size;
     const total = nations.length;
     
@@ -228,8 +252,11 @@ function setDefaultDateRange() {
     const today = new Date();
     const ninetyDaysAgo = new Date(today.getTime() - (90 * 24 * 60 * 60 * 1000));
     
-    document.getElementById('date-to').valueAsDate = today;
-    document.getElementById('date-from').valueAsDate = ninetyDaysAgo;
+    const dateFrom = document.getElementById('date-from');
+    const dateTo = document.getElementById('date-to');
+    
+    if (dateTo) dateTo.valueAsDate = today;
+    if (dateFrom) dateFrom.valueAsDate = ninetyDaysAgo;
 }
 
 // Filter deals based on all criteria
@@ -242,8 +269,10 @@ function filterDeals() {
     }
     
     // Filter by date range
-    const dateFrom = document.getElementById('date-from').value;
-    const dateTo = document.getElementById('date-to').value;
+    const dateFromInput = document.getElementById('date-from');
+    const dateToInput = document.getElementById('date-to');
+    const dateFrom = dateFromInput ? dateFromInput.value : '';
+    const dateTo = dateToInput ? dateToInput.value : '';
     
     if (dateFrom || dateTo) {
         filtered = filtered.filter(deal => {
@@ -257,7 +286,9 @@ function filterDeals() {
     }
     
     // Filter by search term
-    const searchTerm = document.getElementById('search').value.toLowerCase().trim();
+    const searchInput = document.getElementById('search');
+    const searchTerm = searchInput ? searchInput.value.toLowerCase().trim() : '';
+    
     if (searchTerm) {
         filtered = filtered.filter(deal => 
             (deal.Startup_Name || '').toLowerCase().includes(searchTerm) ||
@@ -292,7 +323,8 @@ function resetFilters() {
     setDefaultDateRange();
     
     // Reset search
-    document.getElementById('search').value = '';
+    const searchInput = document.getElementById('search');
+    if (searchInput) searchInput.value = '';
     
     // Reset sort
     currentSort = { column: null, direction: 'asc' };
@@ -303,6 +335,9 @@ function resetFilters() {
 
 // Display statistics
 function displayStats(deals) {
+    const statsContainer = document.getElementById('stats-cards');
+    if (!statsContainer) return;
+    
     const totalDeals = deals.length;
     const totalFunding = deals.reduce((sum, deal) => {
         const amount = parseFloat((deal.Amount || '0').replace(/[^0-9.]/g, ''));
@@ -335,15 +370,19 @@ function displayStats(deals) {
         </div>
     `;
     
-    document.getElementById('stats-cards').innerHTML = statsHTML;
+    statsContainer.innerHTML = statsHTML;
 }
 
 // Display deals in sortable table
 function displayDeals(deals) {
-    document.getElementById('deal-count').textContent = deals.length;
+    const dealCount = document.getElementById('deal-count');
+    const dealsTable = document.getElementById('deals-table');
+    
+    if (dealCount) dealCount.textContent = deals.length;
+    if (!dealsTable) return;
     
     if (deals.length === 0) {
-        document.getElementById('deals-table').innerHTML = '<p class="no-results">No deals found matching your criteria.</p>';
+        dealsTable.innerHTML = '<p class="no-results">No deals found matching your criteria.</p>';
         return;
     }
     
@@ -397,12 +436,14 @@ function displayDeals(deals) {
         </div>
     `;
     
-    document.getElementById('deals-table').innerHTML = tableHTML;
+    dealsTable.innerHTML = tableHTML;
 }
 
 // Sort deals by column
 function sortDeals(column, toggle = true) {
-    // Determine sort direction
+    // Make sortDeals globally accessible
+    window.sortDeals = sortDeals;
+    
     if (toggle) {
         if (currentSort.column === column) {
             currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
@@ -418,105 +459,19 @@ function sortDeals(column, toggle = true) {
         let valA = a[column] || '';
         let valB = b[column] || '';
         
-        // Special handling for Amount
         if (column === 'Amount') {
             valA = parseFloat(valA.toString().replace(/[^0-9.]/g, '')) || 0;
             valB = parseFloat(valB.toString().replace(/[^0-9.]/g, '')) || 0;
             return (valA - valB) * direction;
         }
         
-        // Special handling for Date
         if (column === 'Date') {
             valA = new Date(valA || '1970-01-01');
             valB = new Date(valB || '1970-01-01');
             return (valA - valB) * direction;
         }
         
-        // String comparison
         return valA.toString().localeCompare(valB.toString()) * direction;
     });
     
-    displayStats(filteredDeals);
-    displayDeals(filteredDeals);
-}
-
-// Get sort icon for column
-function getSortIcon(column) {
-    if (currentSort.column !== column) return '⇅';
-    return currentSort.direction === 'asc' ? '↑' : '↓';
-}
-
-// Update last updated timestamp
-async function updateLastUpdated() {
-    try {
-        const response = await fetch(`${DATA_PATH}last_updated.txt`);
-        if (response.ok) {
-            const lastUpdated = await response.text();
-            document.getElementById('last-updated').textContent = `Last updated: ${lastUpdated.trim()}`;
-            document.getElementById('sync-time').textContent = lastUpdated.trim();
-        }
-    } catch (error) {
-        document.getElementById('sync-time').textContent = 'Unknown';
-    }
-}
-
-// Utility functions
-function formatLargeNumber(num) {
-    if (num >= 1e9) return `${(num / 1e9).toFixed(2)}B`;
-    if (num >= 1e6) return `${(num / 1e6).toFixed(2)}M`;
-    if (num >= 1e3) return `${(num / 1e3).toFixed(2)}K`;
-    return num.toFixed(2);
-}
-
-function truncateText(text, maxLength) {
-    if (!text) return 'N/A';
-    if (text.length <= maxLength) return text;
-    return text.substring(0, maxLength) + '...';
-}
-
-function formatDate(dateString) {
-    if (!dateString) return 'N/A';
-    try {
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-US', { 
-            year: 'numeric', 
-            month: 'short', 
-            day: 'numeric' 
-        });
-    } catch {
-        return dateString;
-    }
-}
-
-function getCountryFlag(nation) {
-    const flags = {
-        'Britain': '🇬🇧',
-        'USA': '🇺🇸',
-        'China': '🇨🇳',
-        'Germany': '🇩🇪',
-        'France': '🇫🇷',
-        'India': '🇮🇳',
-        'Canada': '🇨🇦',
-        'Australia': '🇦🇺',
-        'Japan': '🇯🇵',
-        'Singapore': '🇸🇬',
-        'Israel': '🇮🇱',
-        'South Korea': '🇰🇷',
-        'Netherlands': '🇳🇱',
-        'Sweden': '🇸🇪',
-        'Switzerland': '🇨🇭'
-    };
-    return flags[nation] || '🌍';
-}
-
-function showLoading(show) {
-    const content = document.getElementById('dashboard-content');
-    if (show) {
-        content.innerHTML = '<div class="loading">⏳ Loading data...</div>';
-    }
-}
-
-function showError(message) {
-    const content = document.getElementById('dashboard-content');
-    content.innerHTML = `<div class="error">❌ ${message}</div>`;
-}
+    displayStats
