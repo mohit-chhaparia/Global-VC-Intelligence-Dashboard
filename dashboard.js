@@ -474,4 +474,90 @@ function sortDeals(column, toggle = true) {
         return valA.toString().localeCompare(valB.toString()) * direction;
     });
     
-    displayStats
+    displayStats(filteredDeals);
+    displayDeals(filteredDeals);
+}
+
+// Get sort icon for column
+function getSortIcon(column) {
+    if (currentSort.column !== column) return '⇅';
+    return currentSort.direction === 'asc' ? '↑' : '↓';
+}
+
+// Update last updated timestamp
+async function updateLastUpdated() {
+    try {
+        const response = await fetch(`${DATA_PATH}last_updated.txt`);
+        if (response.ok) {
+            const lastUpdated = await response.text();
+            const elem = document.getElementById('last-updated');
+            const syncElem = document.getElementById('sync-time');
+            if (elem) elem.textContent = `Last updated: ${lastUpdated.trim()}`;
+            if (syncElem) syncElem.textContent = lastUpdated.trim();
+        }
+    } catch (error) {
+        console.log('Could not load last_updated.txt');
+    }
+}
+
+// Utility functions
+function formatLargeNumber(num) {
+    if (num >= 1e9) return `${(num / 1e9).toFixed(2)}B`;
+    if (num >= 1e6) return `${(num / 1e6).toFixed(2)}M`;
+    if (num >= 1e3) return `${(num / 1e3).toFixed(2)}K`;
+    return num.toFixed(2);
+}
+
+function truncateText(text, maxLength) {
+    if (!text) return 'N/A';
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + '...';
+}
+
+function formatDate(dateString) {
+    if (!dateString) return 'N/A';
+    try {
+        const date = new Date(dateString);
+        return date.toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'short', 
+            day: 'numeric' 
+        });
+    } catch {
+        return dateString;
+    }
+}
+
+function getCountryFlag(nation) {
+    const flags = {
+        'Britain': '🇬🇧',
+        'USA': '🇺🇸',
+        'Canada': '🇨🇦',
+        'India': '🇮🇳',
+        'Israel': '🇮🇱',
+        'Singapore': '🇸🇬',
+        'UAE': '🇦🇪',
+        'Dubai_UAE': '🇦🇪',
+        'MENA': '🌍'
+    };
+    return flags[nation] || '🌍';
+}
+
+function showLoading(show) {
+    const content = document.getElementById('dashboard-content');
+    if (!content) return;
+    
+    if (show) {
+        content.innerHTML = '<div class="loading">⏳ Loading data...</div>';
+    }
+}
+
+function showError(message) {
+    const content = document.getElementById('dashboard-content');
+    if (!content) return;
+    
+    content.innerHTML = `<div class="error">❌ ${message}</div>`;
+}
+
+// Make sortDeals globally accessible for onclick handlers
+window.sortDeals = sortDeals;
