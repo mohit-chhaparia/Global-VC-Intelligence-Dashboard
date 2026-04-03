@@ -191,7 +191,71 @@
       "Nation": "Canada",
       "Flag": "\ud83c\udde8\ud83c\udde6",
       "Date_Captured": "2026-04-02"
+    },
+    {
+      "Country": "Canada (founded), USA (HQ)",
+      "Startup_Name": "Spade",
+      "Description": "Spade is a data and AI platform transforming how financial institutions use transaction data, turning messy transaction strings into structured, verified records to power AI initiatives. They provide real-time merchant intelligence for the card ecosystem.",
+      "Amount": "40M USD",
+      "Round": "Series B",
+      "Investors": "Oak HC/FT, Andreessen Horowitz, Flourish, Gradient, NAventures (National Bank of Canada's corporate venture arm), Y Combinator",
+      "Founders": "Oban MacTavish, Tess Bloch, Cooper Hart",
+      "LinkedIn_Profile": "N/A",
+      "Hiring": "Yes",
+      "Careers_Link": "https://boards.greenhouse.io/spade",
+      "Tier": "Tier 1",
+      "Nation": "Canada",
+      "Flag": "\ud83c\udde8\ud83c\udde6",
+      "Date_Captured": "2026-04-02"
+    },
+    {
+      "Country": "Canada",
+      "Startup_Name": "Innerlogic",
+      "Description": "Halifax-based SaaS startup providing an operational engine for driving business impact with people data, centralizing feedback, and offering AI insights for organizational learning.",
+      "Amount": "$1.3M USD",
+      "Round": "Seed",
+      "Investors": "Concrete Ventures",
+      "Founders": "N/A",
+      "LinkedIn_Profile": "N/A",
+      "Hiring": "Unknown",
+      "Careers_Link": "N/A",
+      "Tier": "Tier 1",
+      "Nation": "Canada",
+      "Flag": "\ud83c\udde8\ud83c\udde6",
+      "Date_Captured": "2026-04-02"
+    },
+    {
+      "Country": "Canada",
+      "Startup_Name": "Consio AI",
+      "Description": "Toronto-based voice platform that uses AI for phone commerce.",
+      "Amount": "$2.4M USD",
+      "Round": "Seed",
+      "Investors": "RTP Global, Jason Lemkin's SaaStr Fund, Mu Ventures, founders of Gorgias & others",
+      "Founders": "Philippe Roireau",
+      "LinkedIn_Profile": "N/A",
+      "Hiring": "Yes",
+      "Careers_Link": "N/A",
+      "Tier": "Tier 1",
+      "Nation": "Canada",
+      "Flag": "\ud83c\udde8\ud83c\udde6",
+      "Date_Captured": "2026-04-02"
+    },
+    {
+      "Country": "Canada",
+      "Startup_Name": "Nomad Inc.",
+      "Description": "Toronto-based AI-powered fleet management platform, building an 'AI operating system' for the trucking industry, starting with intelligent fuel management.",
+      "Amount": "$2M USD",
+      "Round": "Seed",
+      "Investors": "Undisclosed investors",
+      "Founders": "Loren Shifrin",
+      "LinkedIn_Profile": "N/A",
+      "Hiring": "Yes",
+      "Careers_Link": "https://www.nomad.io/",
+      "Tier": "Tier 1",
+      "Nation": "Canada",
+      "Flag": "\ud83c\udde8\ud83c\udde6",
+      "Date_Captured": "2026-04-02"
     }
   ],
-  "last_updated": "2026-04-02 06:14"
+  "last_updated": "2026-04-02 21:43"
 }

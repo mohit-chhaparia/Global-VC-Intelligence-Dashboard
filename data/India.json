@@ -271,7 +271,55 @@
       "Nation": "India",
       "Flag": "\ud83c\uddee\ud83c\uddf3",
       "Date_Captured": "2026-04-02"
+    },
+    {
+      "Country": "India",
+      "Startup_Name": "Cropcoin Technologies (Pehle Jaisa)",
+      "Description": "An AgriTech company building bio-category products to restore soil health and biodiversity, with a platform supporting data-driven sustainability solutions.",
+      "Amount": "$1.44 million",
+      "Round": "Pre-Series A",
+      "Investors": "Unicorn India Ventures, Climate Angels, a-IDEA",
+      "Founders": "N/A",
+      "LinkedIn_Profile": "N/A",
+      "Hiring": "Unknown",
+      "Careers_Link": "N/A",
+      "Tier": "Tier 1",
+      "Nation": "India",
+      "Flag": "\ud83c\uddee\ud83c\uddf3",
+      "Date_Captured": "2026-04-02"
+    },
+    {
+      "Country": "India",
+      "Startup_Name": "Plum",
+      "Description": "Employee health benefits and insurtech platform with AI-driven claims operations.",
+      "Amount": "23000000 USD",
+      "Round": "Series B",
+      "Investors": "Peak XV Partners, Tanglin Venture Partners, GMO Venture Partners",
+      "Founders": "Abhishek Poddar, Saurabh Arora",
+      "LinkedIn_Profile": "Abhishek Poddar: https://www.linkedin.com/in/abhishek24/, Saurabh Arora: https://www.linkedin.com/in/saurabhplum/",
+      "Hiring": "Yes",
+      "Careers_Link": "https://www.plumhq.com/careers",
+      "Tier": "Tier 1",
+      "Nation": "India",
+      "Flag": "\ud83c\uddee\ud83c\uddf3",
+      "Date_Captured": "2026-04-02"
+    },
+    {
+      "Country": "India",
+      "Startup_Name": "Sarvam AI",
+      "Description": "Startup building language-focused AI models, developing India's sovereign foundation model and deploying GenAI solutions.",
+      "Amount": "200000000-350000000 USD",
+      "Round": "Growth Stage (Nearing Close)",
+      "Investors": "Bessemer Venture Partners, Nvidia, Amazon, Prosperity7 Ventures, HCLTech",
+      "Founders": "Dr. Vivek Raghavan, Dr. Pratyush Kumar",
+      "LinkedIn_Profile": "Dr. Vivek Raghavan: https://www.linkedin.com/in/vivekraghavan/, Dr. Pratyush Kumar: https://www.linkedin.com/in/pratyush-kumar-ai/",
+      "Hiring": "Yes",
+      "Careers_Link": "https://sarvam.ai/careers",
+      "Tier": "Tier 1",
+      "Nation": "India",
+      "Flag": "\ud83c\uddee\ud83c\uddf3",
+      "Date_Captured": "2026-04-02"
     }
   ],
-  "last_updated": "2026-04-02 06:14"
+  "last_updated": "2026-04-02 21:43"
 }
