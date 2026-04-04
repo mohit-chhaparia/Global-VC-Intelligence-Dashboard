@@ -6,7 +6,11 @@ on:
       - main
     paths:
       - 'data/**'
-      - 'main/**'
+      - 'scripts/**'
+      - '.github/workflows/deploy-pages.yml'
+      - 'index.html'
+      - 'dashboard.js'
+      - 'styles.css'
   workflow_dispatch:
 
 permissions:
@@ -28,6 +32,44 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Download private profile image
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_ASSET_REPO_TOKEN }}
+          ASSET_REPO: ${{ vars.PRIVATE_ASSET_REPO }}
+          ASSET_PATH: ${{ vars.PRIVATE_PROFILE_IMAGE_PATH }}
+          BUTTON_1: ${{ vars.PRIVATE_BUTTON_1_PATH }}
+          BUTTON_2: ${{ vars.PRIVATE_BUTTON_2_PATH }}
+          BUTTON_3: ${{ vars.PRIVATE_BUTTON_3_PATH }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets src
+
+          PRIVATE_REF=$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$ASSET_REPO/commits/main" | jq -r '.sha')
+
+          download_file() {
+          local remote_path="$1"
+          local local_path="$2"
+          rm -f "$local_path"
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github.raw" \
+            -H "Cache-Control: no-cache" \
+            -H "Pragma: no-cache" \
+            -o "$local_path" \
+            "https://api.github.com/repos/$ASSET_REPO/contents/$remote_path?ref=$PRIVATE_REF"
+          }
+
+          download_file "$ASSET_PATH"  "assets/profile_photo.png"
+          download_file "$BUTTON_1" "assets/button-1.png"
+          download_file "$BUTTON_2"   "assets/button-2.png"
+          download_file "$BUTTON_3"  "assets/button-3.png"
+            
+
+      - name: Generate data manifest
+        run: python3 scripts/generate_manifest.py
         
       - name: Setup Pages
         uses: actions/configure-pages@v4
