@@ -63,7 +63,71 @@
       "Nation": "Spain",
       "Flag": "\ud83c\uddea\ud83c\uddf8",
       "Date_Captured": "2026-04-04"
+    },
+    {
+      "Country": "Spain",
+      "Startup_Name": "Apartool",
+      "Description": "Company dedicated to corporate accommodation in Spain and Southern Europe, investing in AI for reservation management.",
+      "Amount": "1,944,000 USD",
+      "Round": "Consolidation Round",
+      "Investors": "Barlon Capital, Roch Ventures, Telegraph Hill Capital, Finaves, Endra Capital",
+      "Founders": "N/A",
+      "LinkedIn_Profile": "N/A",
+      "Hiring": "Unknown",
+      "Careers_Link": "N/A",
+      "Tier": "Tier 5",
+      "Nation": "Spain",
+      "Flag": "\ud83c\uddea\ud83c\uddf8",
+      "Date_Captured": "2026-04-04"
+    },
+    {
+      "Country": "Spain",
+      "Startup_Name": "IONLY",
+      "Description": "Startup working with lithium batteries, focusing on sustainable batteries in Europe.",
+      "Amount": "1,296,000 USD",
+      "Round": "Seed/Pre-Series A",
+      "Investors": "N/A",
+      "Founders": "N/A",
+      "LinkedIn_Profile": "N/A",
+      "Hiring": "Unknown",
+      "Careers_Link": "N/A",
+      "Tier": "Tier 5",
+      "Nation": "Spain",
+      "Flag": "\ud83c\uddea\ud83c\uddf8",
+      "Date_Captured": "2026-04-04"
+    },
+    {
+      "Country": "Spain",
+      "Startup_Name": "OASSIST",
+      "Description": "Spanish startup in humanitarian technology, strengthening and scaling its B2G platform for emergency management.",
+      "Amount": "Unknown",
+      "Round": "Investment Round",
+      "Investors": "N/A",
+      "Founders": "N/A",
+      "LinkedIn_Profile": "N/A",
+      "Hiring": "Yes",
+      "Careers_Link": "N/A",
+      "Tier": "Tier 5",
+      "Nation": "Spain",
+      "Flag": "\ud83c\uddea\ud83c\uddf8",
+      "Date_Captured": "2026-04-04"
+    },
+    {
+      "Country": "Spain",
+      "Startup_Name": "Mouedata.ai",
+      "Description": "Tech spin-off from the University of Granada specialized in applying artificial intelligence to biomedical research.",
+      "Amount": "Unknown",
+      "Round": "Investment Round",
+      "Investors": "N/A",
+      "Founders": "N/A",
+      "LinkedIn_Profile": "N/A",
+      "Hiring": "Unknown",
+      "Careers_Link": "N/A",
+      "Tier": "Tier 5",
+      "Nation": "Spain",
+      "Flag": "\ud83c\uddea\ud83c\uddf8",
+      "Date_Captured": "2026-04-04"
     }
   ],
-  "last_updated": "2026-04-04 01:10"
+  "last_updated": "2026-04-04 07:32"
 }

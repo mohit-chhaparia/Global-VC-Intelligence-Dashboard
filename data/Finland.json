@@ -79,7 +79,23 @@
       "Nation": "Finland",
       "Flag": "\ud83c\uddeb\ud83c\uddee",
       "Date_Captured": "2026-04-04"
+    },
+    {
+      "Country": "Finland",
+      "Startup_Name": "Polarnode Oy",
+      "Description": "Polarnode Oy, a Finnish data center developer, is partnering with Nebius, an AI cloud company, to deliver a 310-megawatt AI factory in Lappeenranta, Finland. This multi-billion euro project, valued at over $10 billion, will be one of Europe's largest dedicated AI data centers, coming online in phases from 2027.",
+      "Amount": "$10,000,000,000",
+      "Round": "Project Funding (AI Infrastructure)",
+      "Investors": "Nebius",
+      "Founders": "Mikko Toivanen, Lauri Ikonen",
+      "LinkedIn_Profile": "N/A",
+      "Hiring": "Yes",
+      "Careers_Link": "N/A",
+      "Tier": "Tier 5",
+      "Nation": "Finland",
+      "Flag": "\ud83c\uddeb\ud83c\uddee",
+      "Date_Captured": "2026-04-04"
     }
   ],
-  "last_updated": "2026-04-04 01:10"
+  "last_updated": "2026-04-04 07:32"
 }
