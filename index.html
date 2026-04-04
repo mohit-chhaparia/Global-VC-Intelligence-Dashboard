@@ -3,19 +3,41 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Global VC Intelligence Dashboard</title>
+    <title>AI Venture Capital Intelligence Dashboard</title>
     <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body class="social-style-minimal">
     <div class="container">
-        <header>
-            <h1>🚀 AI Startup Funding Radar</h1>
-            <p id="last-updated">Loading data...</p>
+        <header class="dashboard-header">
+            <div class="header-brand">
+                <div class="header-avatar">
+                    <img id="profile-image" src="assets/profile_photo.png" alt="Mohit Chhaparia" class="avatar-img">
+                </div>
+                <div class="header-text">
+                    <h1 id="dashboard-title">Global AI Venture Capital Intelligence Dashboard</h1>
+                    <p id="dashboard-quote" class="header-tagline">"Simplifying Data Science, Analytics and AI - One Byte at a Time."</p>
+                    <p class="header-credit">
+                        By <strong>Mohit Chhaparia</strong>
+                        <span id="dashboard-hashtag" class="header-hashtag">#DataBytesWithMo</span>
+                    </p>
+                    <div class="header-socials">
+                        <a href="https://www.linkedin.com/in/mohit-chhaparia/" target="_blank" rel="noopener noreferrer" class="social-link social-link-linkedin" title="LinkedIn">
+                            <img src="assets/button-1.png" alt="LinkedIn" class="social-logo social-logo-linkedin">
+                        </a>
+                        <a href="https://github.com/mohit-chhaparia" target="_blank" rel="noopener noreferrer" class="social-link social-link-github" title="GitHub">
+                            <img src="assets/button-2.png" alt="GitHub" class="social-logo social-logo-github">
+                        </a>
+                        <a href="https://public.tableau.com/app/profile/mohit.chhaparia" target="_blank" rel="noopener noreferrer" class="social-link social-link-tableau" title="Tableau Public">
+                            <img src="assets/button-3.png" alt="Tableau" class="social-logo social-logo-tableau">
+                        </a>
+                    </div>
+                </div>
+            </div>
         </header>
-        
+        <p id="last-updated" style="display:none;">Loading data...</p>
+
         <div class="controls">
             <div class="filters">
-                <!-- Multi-select for nations -->
                 <div class="filter-group">
                     <label>Nations/Countries:</label>
                     <div class="multi-select-wrapper">
@@ -31,8 +53,122 @@
                         </div>
                     </div>
                 </div>
-                
-                <!-- Date range filter -->
+
+                <div class="filter-group">
+                    <label>Round:</label>
+                    <div class="multi-select-wrapper">
+                        <button id="round-select-btn" class="multi-select-button">
+                            Select Rounds <span class="arrow">▼</span>
+                        </button>
+                        <div id="round-dropdown" class="multi-select-dropdown hidden">
+                            <div class="dropdown-header">
+                                <button id="select-all-rounds" class="btn-small">Select All</button>
+                                <button id="clear-all-rounds" class="btn-small">Clear All</button>
+                            </div>
+                            <div id="round-checkboxes" class="checkbox-list"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="filter-group">
+                    <label>Tier:</label>
+                    <div class="multi-select-wrapper">
+                        <button id="tier-select-btn" class="multi-select-button">
+                            Select Tiers <span class="arrow">▼</span>
+                        </button>
+                        <div id="tier-dropdown" class="multi-select-dropdown hidden">
+                            <div class="dropdown-header">
+                                <button id="select-all-tiers" class="btn-small">Select All</button>
+                                <button id="clear-all-tiers" class="btn-small">Clear All</button>
+                            </div>
+                            <div id="tier-checkboxes" class="checkbox-list"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="filter-group">
+                    <label>LinkedIn Profile:</label>
+                    <div class="multi-select-wrapper">
+                        <button id="linkedin-select-btn" class="multi-select-button">
+                            Select LinkedIn Status <span class="arrow">▼</span>
+                        </button>
+                        <div id="linkedin-dropdown" class="multi-select-dropdown hidden">
+                            <div class="dropdown-header">
+                                <button id="select-all-linkedin" class="btn-small">Select All</button>
+                                <button id="clear-all-linkedin" class="btn-small">Clear All</button>
+                            </div>
+                            <div id="linkedin-checkboxes" class="checkbox-list"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="filter-group">
+                    <label>Hiring:</label>
+                    <div class="multi-select-wrapper">
+                        <button id="hiring-select-btn" class="multi-select-button">
+                            Select Hiring Status <span class="arrow">▼</span>
+                        </button>
+                        <div id="hiring-dropdown" class="multi-select-dropdown hidden">
+                            <div class="dropdown-header">
+                                <button id="select-all-hiring" class="btn-small">Select All</button>
+                                <button id="clear-all-hiring" class="btn-small">Clear All</button>
+                            </div>
+                            <div id="hiring-checkboxes" class="checkbox-list"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="filter-group">
+                    <label>Careers Link:</label>
+                    <div class="multi-select-wrapper">
+                        <button id="careers-select-btn" class="multi-select-button">
+                            Select Careers Status <span class="arrow">▼</span>
+                        </button>
+                        <div id="careers-dropdown" class="multi-select-dropdown hidden">
+                            <div class="dropdown-header">
+                                <button id="select-all-careers" class="btn-small">Select All</button>
+                                <button id="clear-all-careers" class="btn-small">Clear All</button>
+                            </div>
+                            <div id="careers-checkboxes" class="checkbox-list"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="filter-group">
+                    <label>Amount Range (USD):</label>
+                    <div class="amount-range">
+                        <div class="amount-range-values">
+                            <label class="amount-input-chip" for="amount-min-input">
+                                <span>Min</span>
+                                <input
+                                    type="text"
+                                    id="amount-min-input"
+                                    inputmode="decimal"
+                                    placeholder="$0"
+                                    aria-label="Minimum amount"
+                                >
+                            </label>
+                            <label class="amount-input-chip amount-input-chip-right" for="amount-max-input">
+                                <span>Max</span>
+                                <input
+                                    type="text"
+                                    id="amount-max-input"
+                                    inputmode="decimal"
+                                    placeholder="$0"
+                                    aria-label="Maximum amount"
+                                >
+                            </label>
+                        </div>
+                        <div class="range-slider">
+                            <div class="range-slider-track"></div>
+                            <div id="amount-range-fill" class="range-slider-fill"></div>
+                            <input type="range" id="amount-min" class="range-input range-input-min" aria-label="Minimum amount slider">
+                            <input type="range" id="amount-max" class="range-input range-input-max" aria-label="Maximum amount slider">
+                        </div>
+                        <p id="amount-range-summary" class="filter-help">Any amount</p>
+                    </div>
+                </div>
+
                 <div class="filter-group">
                     <label>Date Range:</label>
                     <div class="date-range">
@@ -41,28 +177,37 @@
                         <input type="date" id="date-to" class="date-input">
                     </div>
                 </div>
-                
-                <!-- Search box -->
+
                 <div class="filter-group full-width">
                     <label>Search:</label>
-                    <input type="text" id="search" placeholder="Search startups, descriptions, investors...">
+                    <input type="text" id="search" placeholder="Search startups, founders, investors, countries, links...">
                 </div>
-                
-                <!-- Reset filters button -->
-                <div class="filter-group">
-                    <button id="reset-filters" class="btn-reset">Reset All Filters</button>
+
+                <div class="filter-group full-width actions-group">
+                    <div class="filter-actions">
+                        <button id="reset-filters" class="btn-reset">Reset All Filters</button>
+                    </div>
                 </div>
             </div>
         </div>
-        
+
         <div id="dashboard-content">
             <div id="stats-cards"></div>
             <div id="deals-container">
-                <h2>Recent Funding Deals (<span id="deal-count">0</span>)</h2>
+                <div class="deals-header">
+                    <div>
+                        <h2>Recent Funding Deals (<span id="deal-count">0</span>)</h2>
+                        <p class="deals-subtitle">All raw deal fields are visible below, and every detected link opens in a new tab.</p>
+                    </div>
+                    <button id="export-csv" class="btn-csv-download">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        Download CSV
+                    </button>
+                </div>
                 <div id="deals-table"></div>
             </div>
         </div>
-        
+
         <footer>
             <p>Data synced daily at 7:00 AM CT | Last sync: <span id="sync-time">Unknown</span></p>
         </footer>
