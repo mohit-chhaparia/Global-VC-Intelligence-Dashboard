@@ -5,12 +5,13 @@ on:
     branches:
       - main
     paths:
-      - 'data/**'
       - 'scripts/**'
       - '.github/workflows/deploy-pages.yml'
       - 'index.html'
       - 'dashboard.js'
       - 'styles.css'
+  repository_dispatch:
+    types: [deploy-dashboard]
   workflow_dispatch:
 
 permissions:
@@ -33,7 +34,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download private profile image
+      - name: Download private assets and data
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_ASSET_REPO_TOKEN }}
           ASSET_REPO: ${{ vars.PRIVATE_ASSET_REPO }}
@@ -41,32 +42,60 @@ jobs:
           BUTTON_1: ${{ vars.PRIVATE_BUTTON_1_PATH }}
           BUTTON_2: ${{ vars.PRIVATE_BUTTON_2_PATH }}
           BUTTON_3: ${{ vars.PRIVATE_BUTTON_3_PATH }}
+          DATA_REPO: ${{ vars.PRIVATE_DATA_REPO }}
+          DATA_DIR: ${{ vars.PRIVATE_DATA_DIR }}
         run: |
           set -euo pipefail
-          mkdir -p assets src
+          mkdir -p assets data
 
+          # --- helper: download a single file from a private repo ---
+          download_file() {
+            local repo="$1"
+            local ref="$2"
+            local remote_path="$3"
+            local local_path="$4"
+            rm -f "$local_path"
+            curl --fail --silent --show-error --location \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github.raw" \
+              -H "Cache-Control: no-cache" \
+              -H "Pragma: no-cache" \
+              -o "$local_path" \
+              "https://api.github.com/repos/$repo/contents/$remote_path?ref=$ref"
+          }
+
+          # --- resolve latest commit from the private repo ---
           PRIVATE_REF=$(curl --fail --silent --show-error \
             -H "Authorization: Bearer $GH_TOKEN" \
             "https://api.github.com/repos/$ASSET_REPO/commits/main" | jq -r '.sha')
 
-          download_file() {
-          local remote_path="$1"
-          local local_path="$2"
-          rm -f "$local_path"
-          curl --fail --silent --show-error --location \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github.raw" \
-            -H "Cache-Control: no-cache" \
-            -H "Pragma: no-cache" \
-            -o "$local_path" \
-            "https://api.github.com/repos/$ASSET_REPO/contents/$remote_path?ref=$PRIVATE_REF"
-          }
+          echo "Private repo ref: $PRIVATE_REF"
 
-          download_file "$ASSET_PATH"  "assets/profile_photo.png"
-          download_file "$BUTTON_1" "assets/button-1.png"
-          download_file "$BUTTON_2"   "assets/button-2.png"
-          download_file "$BUTTON_3"  "assets/button-3.png"
-            
+          # --- download profile image and button assets ---
+          download_file "$ASSET_REPO" "$PRIVATE_REF" "$ASSET_PATH" "assets/profile_photo.png"
+          download_file "$ASSET_REPO" "$PRIVATE_REF" "$BUTTON_1"   "assets/button-1.png"
+          download_file "$ASSET_REPO" "$PRIVATE_REF" "$BUTTON_2"   "assets/button-2.png"
+          download_file "$ASSET_REPO" "$PRIVATE_REF" "$BUTTON_3"   "assets/button-3.png"
+
+          # --- download data files ---
+          DATA_SOURCE="${DATA_REPO:-$ASSET_REPO}"
+          DATA_FOLDER="${DATA_DIR:-data}"
+          DATA_FOLDER="${DATA_FOLDER%/}"
+
+          echo "Fetching data from $DATA_SOURCE/$DATA_FOLDER ..."
+
+          FILE_LIST=$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$DATA_SOURCE/contents/$DATA_FOLDER?ref=$PRIVATE_REF" \
+            | jq -r '.[] | select(.name | test("\\.(json|txt)$")) | .name')
+
+          for FILE_NAME in $FILE_LIST; do
+            echo "  $DATA_FOLDER/$FILE_NAME -> data/$FILE_NAME"
+            download_file "$DATA_SOURCE" "$PRIVATE_REF" "$DATA_FOLDER/$FILE_NAME" "data/$FILE_NAME"
+          done
+
+          echo "Data files downloaded:"
+          ls -la data/
 
       - name: Generate data manifest
         run: python3 scripts/generate_manifest.py
@@ -85,8 +114,9 @@ jobs:
         
       - name: Generate deployment summary
         run: |
-          echo "### 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "### Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Status:** ✅ Successfully deployed to GitHub Pages" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** Deployed to GitHub Pages" >> $GITHUB_STEP_SUMMARY
           echo "- **URL:** ${{ steps.deployment.outputs.page_url }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Time:** $(date +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "- **Data source:** Pulled from private repo at build time" >> $GITHUB_STEP_SUMMARY
