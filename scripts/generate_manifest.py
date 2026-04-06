@@ -48,11 +48,18 @@ def build_manifest() -> dict:
 
     nations.sort(key=lambda item: item["name"].lower())
 
+    last_updated_text = None
+    if LAST_UPDATED_PATH.exists():
+        last_updated_text = LAST_UPDATED_PATH.read_text(encoding="utf-8").strip() or None
+
+    if not last_updated_text:
+        nation_timestamps = [n["last_updated"] for n in nations if n.get("last_updated")]
+        if nation_timestamps:
+            last_updated_text = max(nation_timestamps)
+
     manifest = {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "last_updated": LAST_UPDATED_PATH.read_text(encoding="utf-8").strip()
-        if LAST_UPDATED_PATH.exists()
-        else None,
+        "last_updated": last_updated_text,
         "nations": nations,
     }
 
