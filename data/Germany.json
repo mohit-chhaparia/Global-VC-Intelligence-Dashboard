@@ -111,7 +111,39 @@
       "Nation": "Germany",
       "Flag": "\ud83c\udde9\ud83c\uddea",
       "Date_Captured": "2026-04-03"
+    },
+    {
+      "Country": "Germany",
+      "Startup_Name": "Deeplify",
+      "Description": "Provides an end-to-end AI platform for industrial inspection and asset integrity management, replacing manual workflows.",
+      "Amount": "$2,160,000",
+      "Round": "Pre-seed",
+      "Investors": "D11Z. Ventures, Vanagon Ventures, EWOR, strategic business angels",
+      "Founders": "Christoph Siemer, Jan L\u00f6wer, Felix Asanger",
+      "LinkedIn_Profile": "N/A",
+      "Hiring": "Unknown",
+      "Careers_Link": "N/A",
+      "Tier": "Tier 2",
+      "Nation": "Germany",
+      "Flag": "\ud83c\udde9\ud83c\uddea",
+      "Date_Captured": "2026-04-05"
+    },
+    {
+      "Country": "Germany",
+      "Startup_Name": "Penemue",
+      "Description": "Develops AI solutions to detect and combat online hate speech, digital violence, and disinformation across multiple languages.",
+      "Amount": "$1,836,000",
+      "Round": "Seed",
+      "Investors": "TION Health, Beyond Tomorrow, 4seedimpact, zigzag, Berlin Angel Fund, CGS Consulting and Beteiligungs GmbH, RLM Beteiligungs GmbH, ILG Group, notable business angels",
+      "Founders": "Jonas Navid Mehrabanian Al-Nemri, Sara Egetemeyr, Marlon L\u00fcckert",
+      "LinkedIn_Profile": "N/A",
+      "Hiring": "Unknown",
+      "Careers_Link": "N/A",
+      "Tier": "Tier 2",
+      "Nation": "Germany",
+      "Flag": "\ud83c\udde9\ud83c\uddea",
+      "Date_Captured": "2026-04-05"
     }
   ],
-  "last_updated": "2026-04-05 06:41"
+  "last_updated": "2026-04-06 07:08"
 }
