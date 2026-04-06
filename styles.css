@@ -495,6 +495,10 @@ input[type="text"]:focus,
     background: #f7f8fd;
 }
 
+.checkbox-item-unavailable {
+    opacity: 0.45;
+}
+
 .checkbox-item input[type="checkbox"] {
     width: 18px;
     height: 18px;
@@ -676,14 +680,14 @@ input[type="text"]:focus,
 
 .stats-shell {
     display: grid;
-    gap: 22px;
+    gap: 16px;
 }
 
 .stats-overview-card {
     background: linear-gradient(135deg, rgba(102, 126, 234, 0.98) 0%, rgba(118, 75, 162, 0.98) 100%);
     color: #fff;
     border-radius: 22px;
-    padding: 28px;
+    padding: 22px 24px;
     box-shadow: 0 16px 40px rgba(102, 126, 234, 0.2);
 }
 
@@ -717,15 +721,13 @@ input[type="text"]:focus,
 }
 
 .stats-overview-pills,
-.stats-overview-meta,
-.period-card-footer {
+.stats-overview-meta {
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
 }
 
-.meta-pill,
-.period-pill {
+.meta-pill {
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -733,9 +735,6 @@ input[type="text"]:focus,
     border-radius: 999px;
     font-size: 0.88rem;
     font-weight: 600;
-}
-
-.meta-pill {
     background: rgba(255, 255, 255, 0.14);
     color: #fff;
     border: 1px solid rgba(255, 255, 255, 0.16);
@@ -751,12 +750,12 @@ input[type="text"]:focus,
 .overview-metric-tile {
     background: rgba(255, 255, 255, 0.12);
     border: 1px solid rgba(255, 255, 255, 0.16);
-    border-radius: 18px;
-    padding: 18px;
+    border-radius: 14px;
+    padding: 14px;
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    min-height: 132px;
+    gap: 4px;
+    min-height: 100px;
 }
 
 .metric-icon {
@@ -782,12 +781,12 @@ input[type="text"]:focus,
 
 .highlight-card {
     background: linear-gradient(135deg, #00d2a8 0%, #00e6b8 50%, #2affc8 100%);
-    border-radius: 18px;
-    padding: 20px;
+    border-radius: 14px;
+    padding: 14px 16px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    min-height: 120px;
+    gap: 2px;
+    min-height: 90px;
     color: #1a3a2a;
     box-shadow: 0 8px 24px rgba(0, 210, 168, 0.2);
 }
@@ -821,8 +820,9 @@ input[type="text"]:focus,
 }
 
 .period-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
     gap: 18px;
 }
 
@@ -832,6 +832,8 @@ input[type="text"]:focus,
     background: linear-gradient(180deg, #ffffff 0%, #fafbff 100%);
     padding: 20px;
     box-shadow: 0 10px 30px rgba(31, 36, 48, 0.08);
+    width: calc(25% - 18px);
+    min-width: 240px;
 }
 
 .period-card-header {
@@ -877,7 +879,20 @@ input[type="text"]:focus,
     font-size: 1.05rem;
 }
 
+.period-card-footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
 .period-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    font-weight: 600;
     background: #f0f3ff;
     color: #4a57a9;
 }
@@ -1178,6 +1193,11 @@ footer {
 
     .period-stat-grid {
         grid-template-columns: 1fr;
+    }
+
+    .period-card {
+        width: 100%;
+        min-width: 0;
     }
 
     table {
