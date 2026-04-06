@@ -2,20 +2,6 @@ const MANIFEST_PATH = 'data/manifest.json';
 const LAST_UPDATED_PATH = 'data/last_updated.txt';
 const UNKNOWN_LABEL = 'Unknown';
 const AMOUNT_SLIDER_MAX = 1000;
-const DAY_IN_MS = 24 * 60 * 60 * 1000;
-const ROUND_GROUP_ORDER = [
-    'Seed / Early Stage',
-    'Series A',
-    'Series B',
-    'Series C+',
-    'Growth / Late Stage',
-    'Venture / Investment',
-    'Strategic / Corporate',
-    'Debt Financing',
-    'Grant Funding',
-    'Undisclosed',
-    UNKNOWN_LABEL
-];
 const SEARCH_FIELDS = [
     'Country',
     'Nation',
@@ -47,8 +33,8 @@ const TABLE_COLUMNS = [
 ];
 const PERIOD_DEFINITIONS = [
     {
-        key: 'today',
-        label: 'Today',
+        key: 'current-day',
+        label: 'Current Day',
         icon: 'Today',
         getRange: anchor => ({
             start: startOfUtcDay(anchor),
@@ -56,20 +42,20 @@ const PERIOD_DEFINITIONS = [
         })
     },
     {
-        key: 'yesterday',
-        label: 'Yesterday',
-        icon: 'Prior day',
+        key: 'previous-day',
+        label: 'Previous Day',
+        icon: 'Yesterday',
         getRange: anchor => {
-            const previousDayAnchor = new Date(anchor.getTime() - DAY_IN_MS);
+            const yesterday = new Date(anchor.getTime() - (24 * 60 * 60 * 1000));
             return {
-                start: startOfUtcDay(previousDayAnchor),
-                end: endOfUtcDay(previousDayAnchor)
+                start: startOfUtcDay(yesterday),
+                end: endOfUtcDay(yesterday)
             };
         }
     },
     {
         key: 'current-week',
-        label: 'This Week',
+        label: 'Current Week',
         icon: 'This week',
         getRange: anchor => ({
             start: startOfUtcWeek(anchor),
@@ -78,10 +64,10 @@ const PERIOD_DEFINITIONS = [
     },
     {
         key: 'past-week',
-        label: 'Last Week',
+        label: 'Past Week',
         icon: 'Previous week',
         getRange: anchor => {
-            const previousWeekAnchor = new Date(anchor.getTime() - (7 * DAY_IN_MS));
+            const previousWeekAnchor = new Date(anchor.getTime() - (7 * 24 * 60 * 60 * 1000));
             return {
                 start: startOfUtcWeek(previousWeekAnchor),
                 end: endOfUtcWeek(previousWeekAnchor)
@@ -90,7 +76,7 @@ const PERIOD_DEFINITIONS = [
     },
     {
         key: 'current-month',
-        label: 'This Month',
+        label: 'Current Month',
         icon: 'This month',
         getRange: anchor => ({
             start: startOfUtcMonth(anchor),
@@ -99,7 +85,7 @@ const PERIOD_DEFINITIONS = [
     },
     {
         key: 'past-month',
-        label: 'Last Month',
+        label: 'Past Month',
         icon: 'Previous month',
         getRange: anchor => {
             const previousMonthAnchor = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() - 1, 1));
@@ -111,22 +97,28 @@ const PERIOD_DEFINITIONS = [
     },
     {
         key: 'all-time',
-        label: 'All Visible Dates',
+        label: 'All Time',
         icon: 'Full range',
-        getRange: (anchor, deals) => {
-            const bounds = getDateBounds(deals);
-
-            if (!bounds) {
-                return null;
+        getRange: (_anchor, deals) => {
+            const dates = deals
+                .map(d => d.DateValue)
+                .filter(v => Number.isFinite(v));
+            if (!dates.length) {
+                return { start: startOfUtcDay(_anchor), end: endOfUtcDay(_anchor) };
             }
-
             return {
-                start: bounds.min,
-                end: bounds.max
+                start: startOfUtcDay(new Date(Math.min(...dates))),
+                end: endOfUtcDay(new Date(Math.max(...dates)))
             };
         }
     }
 ];
+const ROUND_GROUP_ORDER = [
+    'Pre-Seed', 'Seed', 'Pre-Series A', 'Series A', 'Series B', 'Series C', 'Series D+',
+    'Growth/Late Stage', 'Acceleration', 'Bridge', 'Debt', 'Grant', 'Strategic',
+    'Venture/Other', 'Other', UNKNOWN_LABEL
+];
+
 const MULTI_SELECT_FILTERS = {
     nation: {
         buttonId: 'nation-select-btn',
@@ -193,8 +185,8 @@ const MULTI_SELECT_FILTERS = {
 
 let allDeals = [];
 let filteredDeals = [];
+let nations = [];
 let allFilterOptions = createEmptyFilterOptions();
-let availableFilterOptions = createEmptyFilterOptions();
 let filterOptions = createEmptyFilterOptions();
 let selectedFilters = createEmptySelectedFilters();
 let amountRange = {
@@ -292,7 +284,7 @@ async function loadData() {
         populateAllFilters();
         initializeAmountRangeControls();
         filterDeals();
-        await updateLastUpdated(manifest.last_updated);
+        await updateLastUpdated(manifest);
         showLoading(false);
     } catch (error) {
         console.error('Critical error loading data:', error);
@@ -325,7 +317,7 @@ function normalizeDeal(deal, fallbackNation) {
         Date_Captured: capturedDate,
         DateValue: parseDateValue(capturedDate),
         AmountValue: parseAmount(deal.Amount),
-        RoundFilter: normalizeRoundValue(deal.Round),
+        RoundFilter: normalizeCategoryValue(deal.Round),
         TierFilter: normalizeTierValue(deal.Tier),
         LinkedInFilter: hasUsefulLinks(deal.LinkedIn_Profile) ? 'Present' : 'Missing',
         HiringFilter: normalizeHiringValue(deal.Hiring),
@@ -334,102 +326,27 @@ function normalizeDeal(deal, fallbackNation) {
 }
 
 function initializeFilterState() {
-    allFilterOptions = buildFilterOptions(allDeals);
-    availableFilterOptions = cloneFilterOptions(allFilterOptions);
-    filterOptions = cloneFilterOptions(allFilterOptions);
+    nations = sortAlphabetically(uniqueValues(allDeals.map(deal => deal.Nation)));
+
+    allFilterOptions = createEmptyFilterOptions();
+    allFilterOptions.nation = nations;
+    allFilterOptions.round = sortWithUnknownLast(uniqueValues(allDeals.map(deal => deal.RoundFilter)));
+    allFilterOptions.tier = sortTierValues(uniqueValues(allDeals.map(deal => deal.TierFilter)));
+    allFilterOptions.linkedin = sortByPreferredOrder(uniqueValues(allDeals.map(deal => deal.LinkedInFilter)), ['Present', 'Missing']);
+    allFilterOptions.hiring = sortByPreferredOrder(uniqueValues(allDeals.map(deal => deal.HiringFilter)), ['Hiring', 'Not Hiring', UNKNOWN_LABEL]);
+    allFilterOptions.careers = sortByPreferredOrder(uniqueValues(allDeals.map(deal => deal.CareersFilter)), ['Present', 'Missing']);
+
+    filterOptions = createEmptyFilterOptions();
+    Object.keys(allFilterOptions).forEach(key => {
+        filterOptions[key] = [...allFilterOptions[key]];
+    });
 
     selectedFilters = createEmptySelectedFilters();
-    Object.keys(allFilterOptions).forEach(key => {
-        selectedFilters[key] = new Set(allFilterOptions[key]);
+    Object.keys(filterOptions).forEach(key => {
+        selectedFilters[key] = new Set(filterOptions[key]);
     });
 
     initializeAmountRange();
-}
-
-function cloneFilterOptions(source) {
-    const clone = createEmptyFilterOptions();
-    Object.keys(clone).forEach(key => {
-        clone[key] = [...(source[key] || [])];
-    });
-    return clone;
-}
-
-function buildFilterOptions(deals) {
-    const nextOptions = createEmptyFilterOptions();
-    Object.keys(MULTI_SELECT_FILTERS).forEach(key => {
-        nextOptions[key] = getFilterOptionsForKey(key, deals);
-    });
-    return nextOptions;
-}
-
-function getFilterOptionsForKey(key, deals) {
-    const field = MULTI_SELECT_FILTERS[key].field;
-    return sortFilterValues(key, uniqueValues(deals.map(deal => deal[field])));
-}
-
-function sortFilterValues(key, values) {
-    switch (key) {
-        case 'nation':
-            return sortAlphabetically(values);
-        case 'round':
-            return sortRoundValues(values);
-        case 'tier':
-            return sortTierValues(values);
-        case 'linkedin':
-            return sortByPreferredOrder(values, ['Present', 'Missing']);
-        case 'hiring':
-            return sortByPreferredOrder(values, ['Hiring', 'Not Hiring', UNKNOWN_LABEL]);
-        case 'careers':
-            return sortByPreferredOrder(values, ['Present', 'Missing']);
-        default:
-            return sortWithUnknownLast(values);
-    }
-}
-
-function refreshFilterOptions() {
-    const nextAvailableOptions = createEmptyFilterOptions();
-
-    Object.keys(MULTI_SELECT_FILTERS).forEach(key => {
-        const availableDeals = applyFilters(allDeals, { excludedMultiSelectKeys: [key] });
-        nextAvailableOptions[key] = getFilterOptionsForKey(key, availableDeals);
-    });
-
-    availableFilterOptions = nextAvailableOptions;
-
-    Object.keys(MULTI_SELECT_FILTERS).forEach(key => {
-        filterOptions[key] = buildDisplayedFilterOptions(key, nextAvailableOptions[key]);
-    });
-
-    populateAllFilters();
-}
-
-function buildDisplayedFilterOptions(key, availableOptions) {
-    if (isAllOptionsSelected(key)) {
-        return [...availableOptions];
-    }
-
-    const selectedUnavailableOptions = sortFilterValues(
-        key,
-        [...selectedFilters[key]].filter(option => !availableOptions.includes(option))
-    );
-
-    return [...availableOptions, ...selectedUnavailableOptions];
-}
-
-function isAllOptionsSelected(key) {
-    const allOptions = allFilterOptions[key] || [];
-    const selected = selectedFilters[key];
-
-    if (!selected || selected.size !== allOptions.length) {
-        return false;
-    }
-
-    return allOptions.every(option => selected.has(option));
-}
-
-function getAvailableSelectedCount(key) {
-    const availableOptions = availableFilterOptions[key] || [];
-    return availableOptions.filter(option => selectedFilters[key].has(option)).length;
 }
 
 function setupEventListeners() {
@@ -497,18 +414,18 @@ function populateAllFilters() {
 function populateFilter(key) {
     const config = MULTI_SELECT_FILTERS[key];
     const container = document.getElementById(config.containerId);
-    const availableOptions = new Set(availableFilterOptions[key] || []);
 
     if (!container) {
         return;
     }
 
+    const availableSet = new Set(filterOptions[key]);
     container.innerHTML = '';
 
-    filterOptions[key].forEach(option => {
-        const isAvailable = availableOptions.has(option);
+    allFilterOptions[key].forEach(option => {
+        const isAvailable = availableSet.has(option);
         const label = document.createElement('label');
-        label.className = 'checkbox-item';
+        label.className = isAvailable ? 'checkbox-item' : 'checkbox-item checkbox-item-unavailable';
 
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
@@ -517,8 +434,7 @@ function populateFilter(key) {
         checkbox.addEventListener('change', event => handleFilterCheckboxChange(key, event));
 
         const text = document.createElement('span');
-        const optionLabel = config.formatOption ? config.formatOption(option) : option;
-        text.textContent = isAvailable ? optionLabel : `${optionLabel} (currently unavailable)`;
+        text.textContent = config.formatOption ? config.formatOption(option) : option;
 
         label.appendChild(checkbox);
         label.appendChild(text);
@@ -605,18 +521,15 @@ function updateFilterButtonText(key) {
         return;
     }
 
-    const total = (availableFilterOptions[key] || []).length;
-    const selectedCount = selectedFilters[key].size;
-    const availableSelectedCount = getAvailableSelectedCount(key);
+    const masterTotal = allFilterOptions[key].length;
+    const count = selectedFilters[key].size;
 
-    if (selectedCount === 0) {
+    if (count === 0) {
         button.innerHTML = `${config.emptyLabel} <span class="arrow">▼</span>`;
-    } else if (isAllOptionsSelected(key)) {
-        button.innerHTML = `All ${config.pluralLabel} (${total}) <span class="arrow">▼</span>`;
-    } else if (selectedCount === availableSelectedCount) {
-        button.innerHTML = `${selectedCount} of ${total} ${config.pluralLabel} <span class="arrow">▼</span>`;
+    } else if (count === masterTotal) {
+        button.innerHTML = `All ${config.pluralLabel} (${masterTotal}) <span class="arrow">▼</span>`;
     } else {
-        button.innerHTML = `${selectedCount} selected (${availableSelectedCount} available) <span class="arrow">▼</span>`;
+        button.innerHTML = `${count} of ${masterTotal} ${config.pluralLabel} <span class="arrow">▼</span>`;
     }
 }
 
@@ -802,40 +715,117 @@ function setDefaultDateRange() {
     dateFrom.value = formatDateInputValue(ninetyDaysAgo);
 }
 
+const MULTI_SELECT_KEYS = ['nation', 'round', 'tier', 'linkedin', 'hiring', 'careers'];
+
 function filterDeals() {
-    refreshFilterOptions();
-    filteredDeals = applyFilters(allDeals);
-    applyCurrentSort();
-    displayStats(filteredDeals);
-    displayDeals(filteredDeals);
-}
+    let filtered = [...allDeals];
 
-function applyFilters(deals, { excludedMultiSelectKeys = [] } = {}) {
-    let filtered = [...deals];
-
-    Object.keys(MULTI_SELECT_FILTERS).forEach(key => {
-        if (!excludedMultiSelectKeys.includes(key)) {
-            filtered = applyMultiSelectFilter(filtered, key);
-        }
-    });
+    filtered = applyMultiSelectFilter(filtered, 'nation');
+    filtered = applyMultiSelectFilter(filtered, 'round');
+    filtered = applyMultiSelectFilter(filtered, 'tier');
+    filtered = applyMultiSelectFilter(filtered, 'linkedin');
+    filtered = applyMultiSelectFilter(filtered, 'hiring');
+    filtered = applyMultiSelectFilter(filtered, 'careers');
 
     filtered = applyAmountFilter(filtered);
     filtered = applyDateFilter(filtered);
     filtered = applySearchFilter(filtered);
 
+    filteredDeals = filtered;
+    updateAvailableFilterOptions();
+    applyCurrentSort();
+    displayStats(filteredDeals);
+
+    const refDate = getReferenceDate(filteredDeals);
+    const tableDeals = getRecentDeals(filteredDeals, refDate, 7);
+    displayDeals(tableDeals, refDate);
+}
+
+function getRecentDeals(deals, refDate, days) {
+    const endTime = endOfUtcDay(refDate).getTime();
+    const startTime = startOfUtcDay(new Date(refDate.getTime() - ((days - 1) * 24 * 60 * 60 * 1000))).getTime();
+    return deals.filter(deal =>
+        Number.isFinite(deal.DateValue) &&
+        deal.DateValue >= startTime &&
+        deal.DateValue <= endTime
+    );
+}
+
+function applyAllFiltersExcept(excludeKey) {
+    let filtered = [...allDeals];
+    MULTI_SELECT_KEYS.forEach(key => {
+        if (key !== excludeKey) {
+            const selected = selectedFilters[key];
+            const allOptions = allFilterOptions[key];
+            const field = MULTI_SELECT_FILTERS[key].field;
+            if (!allOptions.length || selected.size === 0) {
+                filtered = [];
+            } else if (selected.size < allOptions.length) {
+                filtered = filtered.filter(deal => selected.has(deal[field]));
+            }
+        }
+    });
+    filtered = applyAmountFilter(filtered);
+    filtered = applyDateFilter(filtered);
+    filtered = applySearchFilter(filtered);
     return filtered;
 }
 
+function updateAvailableFilterOptions() {
+    const computed = {};
+    MULTI_SELECT_KEYS.forEach(key => {
+        const config = MULTI_SELECT_FILTERS[key];
+        const field = config.field;
+        const dealsForThisFilter = applyAllFiltersExcept(key);
+        const availableValues = new Set(dealsForThisFilter.map(d => d[field]).filter(Boolean));
+        const sortFn = getSortFnForKey(key);
+        const masterOptions = allFilterOptions[key];
+        computed[key] = sortFn(masterOptions.filter(opt => availableValues.has(opt)));
+    });
+
+    MULTI_SELECT_KEYS.forEach(key => {
+        const newOptions = computed[key];
+        const oldOptions = filterOptions[key];
+        filterOptions[key] = newOptions;
+
+        const optionsChanged = newOptions.length !== oldOptions.length ||
+            newOptions.some((v, i) => v !== oldOptions[i]);
+
+        if (optionsChanged) {
+            populateFilter(key);
+        } else {
+            updateFilterButtonText(key);
+        }
+    });
+}
+
+function getSortFnForKey(key) {
+    switch (key) {
+        case 'nation': return sortAlphabetically;
+        case 'round': return sortWithUnknownLast;
+        case 'tier': return sortTierValues;
+        case 'linkedin': return v => sortByPreferredOrder(v, ['Present', 'Missing']);
+        case 'hiring': return v => sortByPreferredOrder(v, ['Hiring', 'Not Hiring', UNKNOWN_LABEL]);
+        case 'careers': return v => sortByPreferredOrder(v, ['Present', 'Missing']);
+        default: return sortAlphabetically;
+    }
+}
+
 function applyMultiSelectFilter(deals, key) {
+    const allOptions = allFilterOptions[key];
     const selected = selectedFilters[key];
     const field = MULTI_SELECT_FILTERS[key].field;
 
-    if (!(allFilterOptions[key] || []).length || isAllOptionsSelected(key)) {
+    if (!allOptions.length) {
         return deals;
     }
 
     if (selected.size === 0) {
         return [];
+    }
+
+    if (selected.size === allOptions.length) {
+        return deals;
     }
 
     return deals.filter(deal => selected.has(deal[field]));
@@ -908,7 +898,10 @@ function applySearchFilter(deals) {
 
 function resetFilters() {
     Object.keys(allFilterOptions).forEach(key => {
-        selectedFilters[key] = new Set(allFilterOptions[key]);
+        filterOptions[key] = [...allFilterOptions[key]];
+        selectedFilters[key] = new Set(filterOptions[key]);
+        syncFilterCheckboxes(key);
+        updateFilterButtonText(key);
     });
 
     initializeAmountRange();
@@ -952,7 +945,7 @@ function displayStats(deals) {
                     <div class="stats-overview-pills">
                         <span class="meta-pill">Median deal ${formatCurrencyCompact(overviewMetrics.medianDealSize)}</span>
                         <span class="meta-pill">Largest deal ${formatCurrencyCompact(overviewMetrics.largestDealAmount)}</span>
-                        <span class="meta-pill">${overviewMetrics.linkCoverageLabel}</span>
+                        <span class="meta-pill">${overviewMetrics.linkLabel}</span>
                     </div>
                 </div>
 
@@ -965,7 +958,7 @@ function displayStats(deals) {
 
                 <div class="stats-overview-meta">
                     <span class="meta-pill">Amounts known: ${overviewMetrics.amountCoverageLabel}</span>
-                    <span class="meta-pill">Hiring: ${overviewMetrics.hiringLabel}</span>
+                    <span class="meta-pill">${overviewMetrics.hiringLabel}</span>
                     <span class="meta-pill">Top round: ${escapeHtml(overviewMetrics.topRound)}</span>
                     <span class="meta-pill">Founders listed: ${overviewMetrics.founderCoverageLabel}</span>
                 </div>
@@ -974,14 +967,14 @@ function displayStats(deals) {
             <div class="highlight-cards-grid">
                 ${buildHighlightCard('🏆', 'Top Round', escapeHtml(overviewMetrics.topRound), `${overviewMetrics.topRoundCount} deals`)}
                 ${buildHighlightCard('🚀', 'Largest Deal', formatCurrencyCompact(overviewMetrics.largestDealAmount), escapeHtml(overviewMetrics.largestDealName))}
-                ${buildHighlightCard('💼', 'Actively Hiring', overviewMetrics.hiringCount.toLocaleString(), '')}
+                ${buildHighlightCard('💼', 'Actively Hiring', overviewMetrics.hiringCount.toLocaleString(), overviewMetrics.hiringLabel)}
                 ${buildHighlightCard('⭐', 'Top Tier', escapeHtml(overviewMetrics.topTier), `${overviewMetrics.topTierCount} deals`)}
             </div>
 
             <div class="period-section-header">
                 <div>
                     <p class="section-kicker">Time Windows</p>
-                    <h3>Today, yesterday, recent periods, and the full visible date range</h3>
+                    <h3>Current day, week, and month against prior periods and all time</h3>
                 </div>
             </div>
 
@@ -1015,13 +1008,11 @@ function buildOverviewMetric(icon, label, value) {
 
 function buildPeriodCard(definition, deals, referenceDate) {
     const range = definition.getRange(referenceDate, deals);
-    const dealsInRange = range
-        ? deals.filter(deal =>
-            Number.isFinite(deal.DateValue) &&
-            deal.DateValue >= range.start.getTime() &&
-            deal.DateValue <= range.end.getTime()
-        )
-        : [];
+    const dealsInRange = deals.filter(deal =>
+        Number.isFinite(deal.DateValue) &&
+        deal.DateValue >= range.start.getTime() &&
+        deal.DateValue <= range.end.getTime()
+    );
     const metrics = calculateMetrics(dealsInRange);
 
     return `
@@ -1031,7 +1022,7 @@ function buildPeriodCard(definition, deals, referenceDate) {
                     <p class="section-kicker">${definition.icon}</p>
                     <h4>${definition.label}</h4>
                 </div>
-                <span class="period-range">${range ? formatDateRange(range.start, range.end) : 'No dated deals'}</span>
+                <span class="period-range">${formatDateRange(range.start, range.end)}</span>
             </div>
 
             <div class="period-stat-grid">
@@ -1056,13 +1047,14 @@ function buildPeriodCard(definition, deals, referenceDate) {
             <div class="period-card-footer">
                 <span class="period-pill">Top round: ${escapeHtml(metrics.topRound)}</span>
                 <span class="period-pill">${metrics.hiringLabel}</span>
-                <span class="period-pill">${metrics.linkCoverageLabel}</span>
+                <span class="period-pill">${metrics.linkLabel}</span>
             </div>
         </article>
     `;
 }
 
 function calculateMetrics(deals) {
+    const total = deals.length;
     const dealsWithAmounts = deals.filter(deal => Number.isFinite(deal.AmountValue));
     const totalFunding = dealsWithAmounts.reduce((sum, deal) => sum + deal.AmountValue, 0);
     const uniqueCountries = new Set(deals.map(deal => deal.Nation).filter(Boolean)).size;
@@ -1071,10 +1063,13 @@ function calculateMetrics(deals) {
     const largestDealAmount = dealsWithAmounts.length > 0
         ? Math.max(...dealsWithAmounts.map(deal => deal.AmountValue))
         : 0;
-    const hiringCount = deals.filter(deal => deal.HiringFilter === 'Hiring').length;
-    const linkCount = deals.filter(deal =>
-        deal.LinkedInFilter === 'Present' || deal.CareersFilter === 'Present'
-    ).length;
+
+    const hiringCount = deals.filter(d => d.HiringFilter === 'Hiring').length;
+    const notHiringCount = deals.filter(d => d.HiringFilter === 'Not Hiring').length;
+    const hiringUnknownCount = total - hiringCount - notHiringCount;
+
+    const linkedinPresent = deals.filter(d => d.LinkedInFilter === 'Present').length;
+    const careersPresent = deals.filter(d => d.CareersFilter === 'Present').length;
     const founderCount = deals.filter(deal => hasMeaningfulValue(deal.Founders)).length;
 
     const topRound = getTopCategory(deals.map(deal => deal.RoundFilter));
@@ -1088,8 +1083,31 @@ function calculateMetrics(deals) {
     const topTier = getTopCategory(deals.map(deal => deal.TierFilter));
     const topTierCount = deals.filter(deal => deal.TierFilter === topTier).length;
 
+    const hiringKnown = hiringCount + notHiringCount;
+    let hiringLabel;
+    if (!total) {
+        hiringLabel = 'No hiring signal';
+    } else if (!hiringKnown) {
+        hiringLabel = 'No hiring signal';
+    } else {
+        const pctHiring = Math.round((hiringCount / total) * 100);
+        const pctKnown = Math.round((hiringKnown / total) * 100);
+        hiringLabel = `${pctHiring}% known hiring`;
+    }
+
+    const linkCount = linkedinPresent + careersPresent;
+    let linkLabel;
+    if (!total) {
+        linkLabel = 'No links present';
+    } else if (!linkCount) {
+        linkLabel = 'No links present';
+    } else {
+        const pctLinks = Math.round((linkCount / total) * 100);
+        linkLabel = `${pctLinks}% known link coverage`;
+    }
+
     return {
-        totalDeals: deals.length,
+        totalDeals: total,
         totalFunding,
         uniqueCountries,
         avgDealSize,
@@ -1099,12 +1117,16 @@ function calculateMetrics(deals) {
         topRound,
         topRoundCount,
         hiringCount,
+        notHiringCount,
+        hiringUnknownCount,
         topTier,
         topTierCount,
-        amountCoverageLabel: `${dealsWithAmounts.length}/${deals.length || 0} deals with disclosed amounts`,
-        hiringLabel: deals.length ? `${Math.round((hiringCount / deals.length) * 100)}% hiring` : 'No hiring signal',
-        linkCoverageLabel: deals.length ? `${Math.round((linkCount / deals.length) * 100)}% link coverage` : 'No links present',
-        founderCoverageLabel: deals.length ? `${founderCount}/${deals.length} with founder names` : 'No founder data'
+        linkedinPresent,
+        careersPresent,
+        amountCoverageLabel: `${dealsWithAmounts.length}/${total || 0} with disclosed amounts`,
+        hiringLabel,
+        linkLabel,
+        founderCoverageLabel: total ? `${founderCount}/${total} with founder names` : 'No founder data'
     };
 }
 
@@ -1120,27 +1142,18 @@ function getReferenceDate(deals) {
     return new Date(Math.max(...candidates));
 }
 
-function getDateBounds(deals) {
-    const candidates = deals
-        .map(deal => deal.DateValue)
-        .filter(value => Number.isFinite(value));
-
-    if (!candidates.length) {
-        return null;
-    }
-
-    return {
-        min: new Date(Math.min(...candidates)),
-        max: new Date(Math.max(...candidates))
-    };
-}
-
-function displayDeals(deals) {
+function displayDeals(deals, refDate) {
     const dealCount = document.getElementById('deal-count');
     const dealsTable = document.getElementById('deals-table');
+    const dealsSubtitle = document.getElementById('deals-subtitle');
 
     if (dealCount) {
         dealCount.textContent = deals.length.toLocaleString();
+    }
+
+    if (dealsSubtitle && refDate) {
+        const sevenDaysAgo = new Date(refDate.getTime() - (6 * 24 * 60 * 60 * 1000));
+        dealsSubtitle.textContent = `Showing deals from ${formatDate(sevenDaysAgo)} to ${formatDate(refDate)}. Cards above reflect all ${filteredDeals.length.toLocaleString()} filtered deals.`;
     }
 
     if (!dealsTable) {
@@ -1148,7 +1161,7 @@ function displayDeals(deals) {
     }
 
     if (deals.length === 0) {
-        dealsTable.innerHTML = '<p class="no-results">No deals found matching your criteria.</p>';
+        dealsTable.innerHTML = `<p class="no-results">No deals in the last 7 days matching your filters.</p>`;
         return;
     }
 
@@ -1264,7 +1277,10 @@ function sortDeals(column, toggle = true) {
 
     applyCurrentSort();
     displayStats(filteredDeals);
-    displayDeals(filteredDeals);
+
+    const refDate = getReferenceDate(filteredDeals);
+    const tableDeals = getRecentDeals(filteredDeals, refDate, 7);
+    displayDeals(tableDeals, refDate);
 }
 
 function applyCurrentSort() {
@@ -1310,13 +1326,16 @@ function getSortIcon(column) {
 }
 
 function downloadFilteredCsv() {
-    if (!filteredDeals.length) {
-        window.alert('There is no filtered data to export right now.');
+    const refDate = getReferenceDate(filteredDeals);
+    const tableDeals = getRecentDeals(filteredDeals, refDate, 7);
+
+    if (!tableDeals.length) {
+        window.alert('There are no deals in the last 7 days to export.');
         return;
     }
 
     const headers = TABLE_COLUMNS.map(column => column.label);
-    const rows = filteredDeals.map(deal => TABLE_COLUMNS.map(column => {
+    const rows = tableDeals.map(deal => TABLE_COLUMNS.map(column => {
         if (column.key === 'Date_Captured') {
             return cleanString(deal.Date_Captured);
         }
@@ -1341,8 +1360,8 @@ function downloadFilteredCsv() {
     URL.revokeObjectURL(url);
 }
 
-async function updateLastUpdated(manifestTimestamp) {
-    let lastUpdated = cleanString(manifestTimestamp);
+async function updateLastUpdated(manifest) {
+    let lastUpdated = cleanString(manifest.last_updated);
 
     if (!lastUpdated) {
         try {
@@ -1352,6 +1371,17 @@ async function updateLastUpdated(manifestTimestamp) {
             }
         } catch (error) {
             console.log('Could not load last_updated.txt');
+        }
+    }
+
+    if (!lastUpdated && manifest.generated_at) {
+        const generatedDate = new Date(manifest.generated_at);
+        if (!isNaN(generatedDate.getTime())) {
+            lastUpdated = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'America/Chicago',
+                year: 'numeric', month: 'short', day: 'numeric',
+                hour: 'numeric', minute: '2-digit', hour12: true
+            }).format(generatedDate) + ' CT';
         }
     }
 
@@ -1472,77 +1502,40 @@ function parseDateValue(value) {
 
 function normalizeCategoryValue(value) {
     const cleaned = cleanString(value);
-    return hasMeaningfulValue(cleaned) ? cleaned : UNKNOWN_LABEL;
+    if (!hasMeaningfulValue(cleaned)) return UNKNOWN_LABEL;
+    return normalizeRoundToGroup(cleaned);
 }
 
-function normalizeRoundValue(value) {
-    const cleaned = cleanString(value);
+function normalizeRoundToGroup(raw) {
+    const lower = raw.toLowerCase();
 
-    if (!hasMeaningfulValue(cleaned)) {
-        return UNKNOWN_LABEL;
+    if (/acceleration/i.test(lower)) return 'Acceleration';
+
+    if (/\bpre[- ]?seed\b/.test(lower) && !/series\s*a/i.test(lower) && !/seed\/pre-series/i.test(lower)) {
+        return 'Pre-Seed';
     }
 
-    const normalized = cleaned.toLowerCase();
-
-    if (normalized.includes('undisclosed')) {
-        return 'Undisclosed';
+    if (/\bpre[- ]?series\s*a\b/.test(lower) || /seed\/pre-series/i.test(lower)) {
+        return 'Pre-Series A';
     }
 
-    if (normalized.includes('grant')) {
-        return 'Grant Funding';
-    }
+    if (/series\s*[d-z](?!\w)/i.test(lower) && !/series\s*unknown/i.test(lower)) return 'Series D+';
+    if (/series\s*c/i.test(lower)) return 'Series C';
+    if (/series\s*b/i.test(lower)) return 'Series B';
+    if (/series\s*a/i.test(lower) || /seed\/series\s*a/i.test(lower)) return 'Series A';
 
-    if (normalized.includes('debt')) {
-        return 'Debt Financing';
-    }
+    if (/\bseed\b/.test(lower)) return 'Seed';
 
-    if (normalized.includes('strategic')) {
-        return 'Strategic / Corporate';
-    }
+    if (/growth|late[r ]?\s*stage|unicorn/i.test(lower)) return 'Growth/Late Stage';
+    if (/bridge/i.test(lower)) return 'Bridge';
+    if (/\bdebt\b/i.test(lower)) return 'Debt';
+    if (/\bgrant\b/i.test(lower)) return 'Grant';
+    if (/strategic/i.test(lower)) return 'Strategic';
+    if (/venture/i.test(lower)) return 'Venture/Other';
 
-    if (
-        normalized.includes('seed') ||
-        normalized.includes('pre-seed') ||
-        normalized.includes('pre seed') ||
-        normalized.includes('pre-series a') ||
-        normalized.includes('pre series a') ||
-        normalized.includes('bridge') ||
-        normalized.includes('acceleration')
-    ) {
-        return 'Seed / Early Stage';
-    }
+    if (/funding|financing|investment|round|new\b/i.test(lower)) return 'Other';
 
-    if (/series\s*a/i.test(cleaned)) {
-        return 'Series A';
-    }
-
-    if (/series\s*b/i.test(cleaned)) {
-        return 'Series B';
-    }
-
-    if (/series\s*[c-z]/i.test(cleaned) || /series\s*[4-9]/i.test(cleaned)) {
-        return 'Series C+';
-    }
-
-    if (
-        normalized.includes('growth') ||
-        normalized.includes('late stage') ||
-        normalized.includes('later stage')
-    ) {
-        return 'Growth / Late Stage';
-    }
-
-    if (
-        normalized.includes('venture') ||
-        normalized.includes('investment') ||
-        normalized.includes('funding round') ||
-        normalized.includes('new financing') ||
-        normalized.includes('new funding round')
-    ) {
-        return 'Venture / Investment';
-    }
-
-    return normalizeCategoryValue(cleaned);
+    return 'Other';
 }
 
 function normalizeTierValue(value) {
@@ -1793,23 +1786,13 @@ function sortAlphabetically(values) {
 
 function sortWithUnknownLast(values) {
     return [...values].sort((a, b) => {
+        const idxA = ROUND_GROUP_ORDER.indexOf(a);
+        const idxB = ROUND_GROUP_ORDER.indexOf(b);
+        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+        if (idxA !== -1) return -1;
+        if (idxB !== -1) return 1;
         if (a === UNKNOWN_LABEL) return 1;
         if (b === UNKNOWN_LABEL) return -1;
-        return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
-    });
-}
-
-function sortRoundValues(values) {
-    const order = new Map(ROUND_GROUP_ORDER.map((value, index) => [value, index]));
-
-    return [...values].sort((a, b) => {
-        const indexA = order.has(a) ? order.get(a) : ROUND_GROUP_ORDER.length;
-        const indexB = order.has(b) ? order.get(b) : ROUND_GROUP_ORDER.length;
-
-        if (indexA !== indexB) {
-            return indexA - indexB;
-        }
-
         return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
     });
 }
