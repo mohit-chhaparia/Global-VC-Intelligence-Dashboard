@@ -115,7 +115,7 @@ Hiring and link coverage use qualified percentages to avoid misrepresentation:
 
 Rates are fetched from live market data during deployment and used to normalize non-USD deal amounts into USD-equivalent values for dashboard cards and filters.
 
-**Last Complete Update:** 2026-04-17 19:03 CT
+**Last Complete Update:** 2026-04-18 03:08 CT
 
 **Last Partial Update:** No partial update recorded
 
@@ -125,29 +125,29 @@ The most recent pipeline run refreshed every nation in the FX table with fresh l
 
 | Nation | Currency | USD per 1 unit of local currency |
 |--------|----------|----------------------------------|
-| Australia | AUD | 0.71632571 |
-| Brazil | BRL | 0.20035246 |
+| Australia | AUD | 0.71755469 |
+| Brazil | BRL | 0.20059517 |
 | Britain | GBP | 1.35345469 |
-| Canada | CAD | 0.72945419 |
-| China | CNY | 0.14630524 |
-| Denmark | DKK | 0.15783115 |
+| Canada | CAD | 0.73101018 |
+| China | CNY | 0.14632494 |
+| Denmark | DKK | 0.15795513 |
 | Dubai | AED | 0.27229408 |
-| Finland | EUR | 1.17782301 |
-| France | EUR | 1.17782301 |
-| Germany | EUR | 1.17782301 |
-| India | INR | 0.01072437 |
-| Ireland | EUR | 1.17782301 |
-| Israel | ILS | 0.33401841 |
-| Japan | JPY | 0.00628417 |
-| Luxembourg | EUR | 1.17782301 |
-| Netherlands | EUR | 1.17782301 |
-| Portugal | EUR | 1.17782301 |
-| Russia | RUB | 0.01310254 |
-| Singapore | SGD | 0.78595776 |
-| South Korea | KRW | 0.00067653 |
-| Spain | EUR | 1.17782301 |
-| Switzerland | CHF | 1.27667615 |
-| Taiwan | TWD | 0.03165312 |
+| Finland | EUR | 1.17862123 |
+| France | EUR | 1.17862123 |
+| Germany | EUR | 1.17862123 |
+| India | INR | 0.01076461 |
+| Ireland | EUR | 1.17862123 |
+| Israel | ILS | 0.33588821 |
+| Japan | JPY | 0.00630442 |
+| Luxembourg | EUR | 1.17862123 |
+| Netherlands | EUR | 1.17862123 |
+| Portugal | EUR | 1.17862123 |
+| Russia | RUB | 0.01315234 |
+| Singapore | SGD | 0.78710904 |
+| South Korea | KRW | 0.00068044 |
+| Spain | EUR | 1.17862123 |
+| Switzerland | CHF | 1.27986403 |
+| Taiwan | TWD | 0.03177726 |
 | UAE | AED | 0.27229408 |
 | USA | USD | 1.00000000 |
 
