@@ -1,11 +1,11 @@
 {
-  "updated_at": "2026-04-24T00:07:53+00:00",
-  "updated_at_ct": "2026-04-23 19:07 CT",
-  "source_updated_at": "Thu, 23 Apr 2026 00:02:31 +0000",
+  "updated_at": "2026-04-24T06:36:42+00:00",
+  "updated_at_ct": "2026-04-24 01:36 CT",
+  "source_updated_at": "Fri, 24 Apr 2026 00:02:31 +0000",
   "provider": "https://www.exchangerate-api.com",
   "fetched_live": true,
   "is_complete_update": true,
-  "last_complete_update": "2026-04-23 19:07 CT",
+  "last_complete_update": "2026-04-24 01:36 CT",
   "last_partial_update": "",
   "missing_live_currencies": [],
   "base_currency": "USD",
@@ -13,59 +13,59 @@
     "USD": 1,
     "USDC": 1,
     "AED": 0.27229407760381213,
-    "AUD": 0.7158641948353262,
-    "BRL": 0.2013585662464649,
-    "CAD": 0.7319513603682007,
-    "CHF": 1.2760326613319994,
-    "CNY": 0.14622377823818772,
-    "DKK": 0.15711200483402216,
-    "EUR": 1.1723604304907502,
-    "GBP": 1.3503969491832124,
-    "ILS": 0.3332775648874755,
-    "INR": 0.010654147730561591,
-    "JPY": 0.006274017369830405,
-    "KRW": 0.0006763939631043354,
-    "RUB": 0.013325640174747647,
-    "SEK": 0.10865384406434915,
-    "SGD": 0.7843543273612594,
-    "TWD": 0.03175544244619794,
-    "ZAR": 0.06070592369010427
+    "AUD": 0.7141138168883633,
+    "BRL": 0.20146659623394464,
+    "CAD": 0.7307826097123932,
+    "CHF": 1.2726856211978517,
+    "CNY": 0.14611464359496962,
+    "DKK": 0.1566617266002212,
+    "EUR": 1.1691434971654118,
+    "GBP": 1.348186756222219,
+    "ILS": 0.3332555736994701,
+    "INR": 0.010619081176355478,
+    "JPY": 0.006265003508715216,
+    "KRW": 0.0006750137239234006,
+    "RUB": 0.013319998593940948,
+    "SEK": 0.10813397843181292,
+    "SGD": 0.7831221513931743,
+    "TWD": 0.031669343676287626,
+    "ZAR": 0.06034866805058232
   },
   "nation_rates": [
     {
       "nation": "Australia",
       "currency": "AUD",
-      "usd_rate": 0.7158641948353262,
+      "usd_rate": 0.7141138168883633,
       "rate_source": "live"
     },
     {
       "nation": "Brazil",
       "currency": "BRL",
-      "usd_rate": 0.2013585662464649,
+      "usd_rate": 0.20146659623394464,
       "rate_source": "live"
     },
     {
       "nation": "Britain",
       "currency": "GBP",
-      "usd_rate": 1.3503969491832124,
+      "usd_rate": 1.348186756222219,
       "rate_source": "live"
     },
     {
       "nation": "Canada",
       "currency": "CAD",
-      "usd_rate": 0.7319513603682007,
+      "usd_rate": 0.7307826097123932,
       "rate_source": "live"
     },
     {
       "nation": "China",
       "currency": "CNY",
-      "usd_rate": 0.14622377823818772,
+      "usd_rate": 0.14611464359496962,
       "rate_source": "live"
     },
     {
       "nation": "Denmark",
       "currency": "DKK",
-      "usd_rate": 0.15711200483402216,
+      "usd_rate": 0.1566617266002212,
       "rate_source": "live"
     },
     {
@@ -77,97 +77,97 @@
     {
       "nation": "Finland",
       "currency": "EUR",
-      "usd_rate": 1.1723604304907502,
+      "usd_rate": 1.1691434971654118,
       "rate_source": "live"
     },
     {
       "nation": "France",
       "currency": "EUR",
-      "usd_rate": 1.1723604304907502,
+      "usd_rate": 1.1691434971654118,
       "rate_source": "live"
     },
     {
       "nation": "Germany",
       "currency": "EUR",
-      "usd_rate": 1.1723604304907502,
+      "usd_rate": 1.1691434971654118,
       "rate_source": "live"
     },
     {
       "nation": "India",
       "currency": "INR",
-      "usd_rate": 0.010654147730561591,
+      "usd_rate": 0.010619081176355478,
       "rate_source": "live"
     },
     {
       "nation": "Ireland",
       "currency": "EUR",
-      "usd_rate": 1.1723604304907502,
+      "usd_rate": 1.1691434971654118,
       "rate_source": "live"
     },
     {
       "nation": "Israel",
       "currency": "ILS",
-      "usd_rate": 0.3332775648874755,
+      "usd_rate": 0.3332555736994701,
       "rate_source": "live"
     },
     {
       "nation": "Japan",
       "currency": "JPY",
-      "usd_rate": 0.006274017369830405,
+      "usd_rate": 0.006265003508715216,
       "rate_source": "live"
     },
     {
       "nation": "Luxembourg",
       "currency": "EUR",
-      "usd_rate": 1.1723604304907502,
+      "usd_rate": 1.1691434971654118,
       "rate_source": "live"
     },
     {
       "nation": "Netherlands",
       "currency": "EUR",
-      "usd_rate": 1.1723604304907502,
+      "usd_rate": 1.1691434971654118,
       "rate_source": "live"
     },
     {
       "nation": "Portugal",
       "currency": "EUR",
-      "usd_rate": 1.1723604304907502,
+      "usd_rate": 1.1691434971654118,
       "rate_source": "live"
     },
     {
       "nation": "Russia",
       "currency": "RUB",
-      "usd_rate": 0.013325640174747647,
+      "usd_rate": 0.013319998593940948,
       "rate_source": "live"
     },
     {
       "nation": "Singapore",
       "currency": "SGD",
-      "usd_rate": 0.7843543273612594,
+      "usd_rate": 0.7831221513931743,
       "rate_source": "live"
     },
     {
       "nation": "South Korea",
       "currency": "KRW",
-      "usd_rate": 0.0006763939631043354,
+      "usd_rate": 0.0006750137239234006,
       "rate_source": "live"
     },
     {
       "nation": "Spain",
       "currency": "EUR",
-      "usd_rate": 1.1723604304907502,
+      "usd_rate": 1.1691434971654118,
       "rate_source": "live"
     },
     {
       "nation": "Switzerland",
       "currency": "CHF",
-      "usd_rate": 1.2760326613319994,
+      "usd_rate": 1.2726856211978517,
       "rate_source": "live"
     },
     {
       "nation": "Taiwan",
       "currency": "TWD",
-      "usd_rate": 0.03175544244619794,
+      "usd_rate": 0.031669343676287626,
       "rate_source": "live"
     },
     {
