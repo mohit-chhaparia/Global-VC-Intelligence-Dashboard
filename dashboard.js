@@ -4,6 +4,7 @@ const FX_RATES_PATH = 'data/fx_rates.json';
 const UNKNOWN_LABEL = 'Unknown';
 const AMOUNT_SLIDER_MAX = 1000;
 const MAX_REALISTIC_DEAL_AMOUNT = 250e9;
+const MIN_REALISTIC_DEAL_AMOUNT = 1;
 const SYNC_TIME_ZONE = 'America/Chicago';
 const SYNC_TIME_ZONE_LABEL = 'CT';
 const FALLBACK_CURRENCY_TO_USD_RATE = {
@@ -207,6 +208,8 @@ const MULTI_SELECT_FILTERS = {
     }
 };
 
+const MULTI_SELECT_KEYS = ['nation', 'round', 'tier', 'linkedin', 'hiring', 'careers'];
+
 let allDeals = [];
 let filteredDeals = [];
 let nations = [];
@@ -221,8 +224,121 @@ let amountRange = {
     hasValues: false
 };
 let currentSort = { column: null, direction: 'asc' };
+/** @type {Record<string, { col: number, dir: 'asc' | 'desc' }>} */
+let insightTableSort = {};
 let dashboardInitialized = false;
 let currencyToUsdRate = { ...FALLBACK_CURRENCY_TO_USD_RATE };
+let activePageId = 'page-1';
+let selectedCountryInsight = '';
+let outlierRegistry = { records: [], currently_detected_count: 0 };
+
+const EARLY_STAGE_ROUNDS = ['Pre-Seed', 'Seed', 'Pre-Series A', 'Series A'];
+
+function setsEqual(a, b) {
+    if (!(a instanceof Set) || !(b instanceof Set) || a.size !== b.size) {
+        return false;
+    }
+    for (const item of a) {
+        if (!b.has(item)) return false;
+    }
+    return true;
+}
+
+function isDefaultDateRange() {
+    const dateFrom = document.getElementById('date-from');
+    const dateTo = document.getElementById('date-to');
+    if (!dateFrom || !dateTo) return false;
+
+    const availableDates = allDeals.map(deal => deal.DateValue).filter(Number.isFinite);
+    if (!availableDates.length) {
+        return !cleanString(dateFrom.value) && !cleanString(dateTo.value);
+    }
+
+    const maxDate = new Date(Math.max(...availableDates));
+    const ninetyDaysAgo = new Date(maxDate.getTime() - (90 * 24 * 60 * 60 * 1000));
+    return dateFrom.value === formatDateInputValue(ninetyDaysAgo) && dateTo.value === formatDateInputValue(maxDate);
+}
+
+function isDefaultAmountRange() {
+    if (!amountRange.hasValues) return true;
+    return amountRange.selectedMin === amountRange.availableMin
+        && amountRange.selectedMax === amountRange.availableMax;
+}
+
+function isDefaultSearch() {
+    const searchInput = document.getElementById('search');
+    return !cleanString(searchInput ? searchInput.value : '');
+}
+
+function matchesBaselineFilters() {
+    return isDefaultDateRange() && isDefaultAmountRange() && isDefaultSearch();
+}
+
+function getEarlyStageRoundSelection() {
+    const preferred = allFilterOptions.round.filter(v => EARLY_STAGE_ROUNDS.includes(v));
+    return new Set(preferred);
+}
+
+function isFullSelectionForKeys(keys) {
+    return keys.every(key => selectedFilters[key].size === allFilterOptions[key].length);
+}
+
+function isGlobalVcLensState() {
+    return isFullSelectionForKeys(MULTI_SELECT_KEYS);
+}
+
+function isEarlyStageLensState() {
+    const fullOther = ['nation', 'tier', 'linkedin', 'hiring', 'careers'];
+    if (!isFullSelectionForKeys(fullOther)) {
+        return false;
+    }
+    const expectedRounds = getEarlyStageRoundSelection();
+    if (!expectedRounds.size) {
+        return false;
+    }
+    return setsEqual(selectedFilters.round, expectedRounds);
+}
+
+function isHiringFocusedLensState() {
+    const fullOther = ['nation', 'tier', 'round', 'careers'];
+    if (!isFullSelectionForKeys(fullOther)) {
+        return false;
+    }
+    if (!setsEqual(selectedFilters.hiring, new Set(['Yes']))) {
+        return false;
+    }
+    const hasPresent = allFilterOptions.linkedin.includes('Present');
+    if (hasPresent) {
+        return setsEqual(selectedFilters.linkedin, new Set(['Present']));
+    }
+    return selectedFilters.linkedin.size === allFilterOptions.linkedin.length;
+}
+
+function getActiveSavedViewKey() {
+    if (!matchesBaselineFilters()) {
+        return null;
+    }
+    if (isHiringFocusedLensState()) {
+        return 'hiring-focused';
+    }
+    if (isEarlyStageLensState()) {
+        return 'early-stage';
+    }
+    if (isGlobalVcLensState()) {
+        return 'global-vc';
+    }
+    return null;
+}
+
+function syncSavedViewButtons() {
+    const activeKey = getActiveSavedViewKey();
+    document.querySelectorAll('.btn-preset').forEach(btn => {
+        const preset = btn.dataset.preset || '';
+        const isActive = Boolean(activeKey && preset === activeKey);
+        btn.classList.toggle('btn-preset--active', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     console.log('Dashboard initializing...');
@@ -256,7 +372,7 @@ async function loadData() {
         showLoading(true);
 
         const manifest = await loadManifest();
-        await loadFxRates();
+        await Promise.all([loadFxRates(), loadOutlierRegistry()]);
         const nationEntries = Array.isArray(manifest.nations) ? manifest.nations : [];
 
         if (nationEntries.length === 0) {
@@ -305,6 +421,16 @@ async function loadData() {
             showError('No deals found in the data files. Please check the JSON structure.');
             return;
         }
+
+        const dedupedDeals = dedupeDealsByFingerprint(loadedDeals);
+        if (dedupedDeals.length < loadedDeals.length) {
+            console.warn(
+                `Removed ${loadedDeals.length - dedupedDeals.length} duplicate deal record(s) ` +
+                '(same startup, nation, round, amount, and capture day—often from overlapping nation files).'
+            );
+        }
+        loadedDeals.length = 0;
+        loadedDeals.push(...dedupedDeals);
 
         if (excludedDeals.length) {
             console.warn(`Excluded ${excludedDeals.length} implausible deal record(s) during load.`, excludedDeals.map(deal => ({
@@ -371,6 +497,231 @@ async function loadFxRates() {
     }
 }
 
+async function loadOutlierRegistry() {
+    try {
+        const response = await fetch('data/outlier.json', { cache: 'no-store' });
+        if (!response.ok) {
+            outlierRegistry = { records: [], currently_detected_count: 0 };
+            return;
+        }
+        const payload = await response.json();
+        if (payload && typeof payload === 'object' && Array.isArray(payload.records)) {
+            outlierRegistry = payload;
+            return;
+        }
+        outlierRegistry = { records: [], currently_detected_count: 0 };
+    } catch (error) {
+        console.warn('Could not load outlier registry, continuing without anomaly panel.', error);
+        outlierRegistry = { records: [], currently_detected_count: 0 };
+    }
+}
+
+function applyFilterPreset(presetKey) {
+    const preset = String(presetKey || '').toLowerCase();
+    if (!preset) return;
+
+    MULTI_SELECT_KEYS.forEach(key => {
+        selectedFilters[key] = new Set(allFilterOptions[key]);
+    });
+    initializeAmountRange();
+    initializeAmountRangeControls();
+    setDefaultDateRange();
+    const searchInput = document.getElementById('search');
+    if (searchInput) {
+        searchInput.value = '';
+    }
+
+    switch (preset) {
+        case 'global-vc':
+            // Broad market baseline: all dimensions available.
+            break;
+        case 'early-stage':
+            {
+                const selectedRounds = allFilterOptions.round.filter(v => EARLY_STAGE_ROUNDS.includes(v));
+                if (selectedRounds.length) {
+                    selectedFilters.round = new Set(selectedRounds);
+                }
+            }
+            break;
+        case 'hiring-focused':
+            selectedFilters.hiring = new Set(['Yes']);
+            selectedFilters.linkedin = new Set(
+                allFilterOptions.linkedin.includes('Present') ? ['Present'] : allFilterOptions.linkedin
+            );
+            break;
+        default:
+            return;
+    }
+
+    MULTI_SELECT_KEYS.forEach(syncFilterCheckboxes);
+    MULTI_SELECT_KEYS.forEach(updateFilterButtonText);
+    filterDeals();
+}
+
+function renderDataFreshnessWidget(deals) {
+    const latestByCountry = new Map();
+    deals.forEach(deal => {
+        if (!Number.isFinite(deal.DateValue)) return;
+        const nation = cleanString(deal.Nation);
+        if (!nation) return;
+        const existing = latestByCountry.get(nation);
+        if (!existing || deal.DateValue > existing) {
+            latestByCountry.set(nation, deal.DateValue);
+        }
+    });
+
+    const rows = [...latestByCountry.entries()]
+        .map(([nation, ts]) => {
+            const deltaDays = Math.max(0, Math.floor((getReferenceDate(deals).getTime() - ts) / (24 * 60 * 60 * 1000)));
+            const freshness = deltaDays <= 1 ? 'Fresh' : deltaDays <= 3 ? 'Recent' : 'Stale';
+            return {
+                nation,
+                lastSeen: formatDate(ts),
+                deltaDays,
+                freshness
+            };
+        })
+        .sort((a, b) => a.deltaDays - b.deltaDays)
+        .slice(0, 12);
+
+    return `
+        <div class="insight-table-wrap" data-insight-table="freshness">
+            <table class="simple-table sticky-header-table">
+                <thead><tr>
+                    ${insightSortableTh('freshness', 'Country', 0)}
+                    ${insightSortableTh('freshness', 'Last captured', 1)}
+                    ${insightSortableTh('freshness', 'Lag (days)', 2, 'number')}
+                    ${insightSortableTh('freshness', 'Status', 3)}
+                </tr></thead>
+                <tbody>
+                    ${rows.map(row => `<tr ${insightRowSortAttrs([row.nation, row.lastSeen, row.deltaDays, row.freshness])}><td>${escapeHtml(row.nation)}</td><td>${escapeHtml(row.lastSeen)}</td><td>${row.deltaDays}</td><td>${escapeHtml(row.freshness)}</td></tr>`).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
+function severityBadge(level) {
+    const mapped = (level || '').toLowerCase();
+    const valid = ['high', 'medium', 'low'].includes(mapped) ? mapped : 'low';
+    return `<span class="alert-severity alert-${valid}">${valid.toUpperCase()}</span>`;
+}
+
+function buildSeverityAlerts(deals, topCountries) {
+    const alerts = [];
+    const highValue = deals.filter(d => Number.isFinite(d.AmountValue) && d.AmountValue >= 100e6).length;
+    const currentOutliers = (Array.isArray(outlierRegistry.records) ? outlierRegistry.records : [])
+        .filter(record => record && record.currently_detected);
+    const outlierCount = currentOutliers.length;
+    const staleCountries = summarizeCountries(deals).filter(c => {
+        const lastTs = Math.max(...deals.filter(d => d.Nation === c.name && Number.isFinite(d.DateValue)).map(d => d.DateValue), 0);
+        const deltaDays = lastTs ? Math.floor((getReferenceDate(deals).getTime() - lastTs) / (24 * 60 * 60 * 1000)) : 999;
+        return deltaDays >= 5;
+    }).slice(0, 3);
+
+    if (highValue) {
+        alerts.push({
+            severity: 'high',
+            text: `${highValue} mega deals ($100M+) detected`,
+            pageId: 'page-1',
+            anchor: 'stats-cards'
+        });
+    }
+    if (outlierCount) {
+        alerts.push({
+            severity: 'medium',
+            text: `${outlierCount} unrealistic amount anomalies need audit`,
+            pageId: 'page-2',
+            anchor: 'anomaly-audit'
+        });
+    }
+    staleCountries.forEach(country => alerts.push({
+        severity: 'low',
+        text: `${country.name}: latest deal in this view is older than 5 days`,
+        pageId: 'page-2',
+        anchor: 'data-freshness'
+    }));
+    if (!alerts.length && topCountries[0]) {
+        alerts.push({
+            severity: 'low',
+            text: `${topCountries[0].name} leads current volume`,
+            pageId: 'page-2',
+            anchor: 'country-leaderboard'
+        });
+    }
+    return alerts;
+}
+
+function renderSeverityAlerts(alerts) {
+    if (!alerts.length) return '<p>No alerts in current filter window.</p>';
+    return `
+        <ul class="alert-list">
+            ${alerts.map(alert => `<li>${severityBadge(alert.severity)} <a href="#${escapeHtml(alert.anchor || '')}" class="alert-link" data-target-page="${escapeHtml(alert.pageId || activePageId)}" data-target-anchor="${escapeHtml(alert.anchor || '')}">${escapeHtml(alert.text)}</a></li>`).join('')}
+        </ul>
+    `;
+}
+
+function renderAnomalyAuditPanel() {
+    const records = Array.isArray(outlierRegistry.records) ? outlierRegistry.records : [];
+    if (!records.length) {
+        return '<p>No currently tracked anomalies in outlier registry.</p>';
+    }
+    const rows = records
+        .slice(0, 20)
+        .map(record => {
+            const startup = record.startup_name || 'Unknown';
+            const nation = record.nation || 'Unknown';
+            const amount = record.amount || 'N/A';
+            const reason = record.reason || '';
+            return `<tr ${insightRowSortAttrs([startup, nation, amount, reason])}><td>${escapeHtml(startup)}</td><td>${escapeHtml(nation)}</td><td>${escapeHtml(amount)}</td><td>${escapeHtml(reason)}</td></tr>`;
+        })
+        .join('');
+    return `
+        <div class="insight-table-wrap insight-table-wrap--wide" data-insight-table="anomaly">
+            <table class="simple-table sticky-header-table">
+                <thead><tr>
+                    ${insightSortableTh('anomaly', 'Startup', 0)}
+                    ${insightSortableTh('anomaly', 'Nation', 1)}
+                    ${insightSortableTh('anomaly', 'Amount', 2)}
+                    ${insightSortableTh('anomaly', 'Anomaly reason', 3)}
+                </tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>
+    `;
+}
+
+function buildDealDedupFingerprint(deal) {
+    const startup = cleanString(deal.Startup_Name).toLowerCase();
+    const nation = cleanString(deal.Nation).toLowerCase();
+    const round = cleanString(deal.RoundFilter).toLowerCase();
+    const amountKey = Number.isFinite(deal.AmountValue)
+        ? `v:${deal.AmountValue}`
+        : `a:${cleanString(deal.Amount).toLowerCase()}`;
+    let dayKey = '';
+    if (Number.isFinite(deal.DateValue)) {
+        dayKey = String(startOfUtcDay(new Date(deal.DateValue)).getTime());
+    } else {
+        const raw = cleanString(deal.Date_Captured) || cleanString(deal.Date);
+        dayKey = raw.slice(0, 10);
+    }
+    return `${nation}|${startup}|${round}|${amountKey}|${dayKey}`;
+}
+
+function dedupeDealsByFingerprint(deals) {
+    const seen = new Set();
+    const out = [];
+    deals.forEach(deal => {
+        const fp = buildDealDedupFingerprint(deal);
+        if (seen.has(fp)) {
+            return;
+        }
+        seen.add(fp);
+        out.push(deal);
+    });
+    return out;
+}
+
 function normalizeDeal(deal, fallbackNation) {
     const nation = cleanString(deal.Nation) || cleanString(deal.Country) || fallbackNation;
     const country = cleanString(deal.Country) || nation;
@@ -412,7 +763,7 @@ function initializeFilterState() {
     allFilterOptions.round = sortWithUnknownLast(uniqueValues(allDeals.map(deal => deal.RoundFilter)));
     allFilterOptions.tier = sortTierValues(uniqueValues(allDeals.map(deal => deal.TierFilter)));
     allFilterOptions.linkedin = sortByPreferredOrder(uniqueValues(allDeals.map(deal => deal.LinkedInFilter)), ['Present', 'Missing']);
-    allFilterOptions.hiring = sortByPreferredOrder(uniqueValues(allDeals.map(deal => deal.HiringFilter)), ['Hiring', 'Not Hiring', UNKNOWN_LABEL]);
+    allFilterOptions.hiring = sortByPreferredOrder(uniqueValues(allDeals.map(deal => deal.HiringFilter)), ['Yes', 'No', UNKNOWN_LABEL]);
     allFilterOptions.careers = sortByPreferredOrder(uniqueValues(allDeals.map(deal => deal.CareersFilter)), ['Present', 'Missing']);
 
     filterOptions = createEmptyFilterOptions();
@@ -429,6 +780,7 @@ function initializeFilterState() {
 }
 
 function setupEventListeners() {
+    setupPageNavigation();
     Object.entries(MULTI_SELECT_FILTERS).forEach(([key, config]) => {
         const button = document.getElementById(config.buttonId);
         const selectAllButton = document.getElementById(config.selectAllId);
@@ -456,6 +808,8 @@ function setupEventListeners() {
     const amountMax = document.getElementById('amount-max');
     const amountMinInput = document.getElementById('amount-min-input');
     const amountMaxInput = document.getElementById('amount-max-input');
+    const presetButtons = Array.from(document.querySelectorAll('.btn-preset'));
+    const globalCountrySelector = document.getElementById('country-intel-select-global');
 
     if (dateFrom) dateFrom.addEventListener('change', filterDeals);
     if (dateTo) dateTo.addEventListener('change', filterDeals);
@@ -471,6 +825,18 @@ function setupEventListeners() {
     if (amountMaxInput) {
         amountMaxInput.addEventListener('change', () => handleAmountTextInput('max'));
         amountMaxInput.addEventListener('blur', () => handleAmountTextInput('max'));
+    }
+    presetButtons.forEach(button => {
+        button.addEventListener('click', () => applyFilterPreset(button.dataset.preset || ''));
+        button.setAttribute('aria-pressed', 'false');
+        button.setAttribute('type', 'button');
+    });
+    if (globalCountrySelector) {
+        globalCountrySelector.addEventListener('change', event => {
+            selectedCountryInsight = event.target.value;
+            updateCountryContextSubtitle(selectedCountryInsight);
+            renderCountryIntelligencePage(filteredDeals);
+        });
     }
 
     document.addEventListener('click', event => {
@@ -794,7 +1160,47 @@ function setDefaultDateRange() {
     dateFrom.value = formatDateInputValue(ninetyDaysAgo);
 }
 
-const MULTI_SELECT_KEYS = ['nation', 'round', 'tier', 'linkedin', 'hiring', 'careers'];
+function getDateFilterLabel() {
+    const dateFromInput = document.getElementById('date-from');
+    const dateToInput = document.getElementById('date-to');
+    const from = cleanString(dateFromInput ? dateFromInput.value : '');
+    const to = cleanString(dateToInput ? dateToInput.value : '');
+    if (!from && !to) {
+        return 'All dates';
+    }
+    if (from && to) {
+        return `${from} to ${to}`;
+    }
+    if (from) {
+        return `From ${from}`;
+    }
+    return `Until ${to}`;
+}
+
+function updateCountryContextSubtitle(country) {
+    const node = document.getElementById('country-context-subtitle');
+    if (!node) return;
+    node.textContent = `Country intelligence currently focused on: ${country || 'All countries'}`;
+}
+
+function syncGlobalCountrySelector(countries) {
+    const group = document.getElementById('country-intel-filter-group');
+    const selector = document.getElementById('country-intel-select-global');
+    if (!group || !selector) {
+        return;
+    }
+
+    const show = activePageId === 'page-3' && Array.isArray(countries) && countries.length > 0;
+    group.classList.toggle('hidden', !show);
+    if (!show) {
+        return;
+    }
+
+    const options = countries
+        .map(country => `<option value="${escapeHtml(country.name)}" ${country.name === selectedCountryInsight ? 'selected' : ''}>${escapeHtml(country.name)}</option>`)
+        .join('');
+    selector.innerHTML = options;
+}
 
 function filterDeals() {
     let filtered = [...allDeals];
@@ -812,8 +1218,10 @@ function filterDeals() {
 
     filteredDeals = filtered;
     updateAvailableFilterOptions();
+    syncSavedViewButtons();
     applyCurrentSort();
     displayStats(filteredDeals);
+    renderEnhancedPages(filteredDeals);
 
     const refDate = getReferenceDate(filteredDeals);
     const tableDeals = getRecentDeals(filteredDeals, refDate, 7);
@@ -884,7 +1292,7 @@ function getSortFnForKey(key) {
         case 'round': return sortWithUnknownLast;
         case 'tier': return sortTierValues;
         case 'linkedin': return v => sortByPreferredOrder(v, ['Present', 'Missing']);
-        case 'hiring': return v => sortByPreferredOrder(v, ['Hiring', 'Not Hiring', UNKNOWN_LABEL]);
+        case 'hiring': return v => sortByPreferredOrder(v, ['Yes', 'No', UNKNOWN_LABEL]);
         case 'careers': return v => sortByPreferredOrder(v, ['Present', 'Missing']);
         default: return sortAlphabetically;
     }
@@ -1104,7 +1512,7 @@ function buildPeriodCard(definition, deals, referenceDate) {
                 <span class="period-range">${formatDateRange(range.start, range.end)}</span>
             </div>
 
-            <div class="period-stat-grid">
+            <div class="period-stat-grid period-stat-grid--3col">
                 <div class="period-stat">
                     <span>Deals</span>
                     <strong>${metrics.totalDeals.toLocaleString()}</strong>
@@ -1117,9 +1525,15 @@ function buildPeriodCard(definition, deals, referenceDate) {
                     <span>Countries</span>
                     <strong>${metrics.uniqueCountries.toLocaleString()}</strong>
                 </div>
-                <div class="period-stat">
-                    <span>Avg Size</span>
+            </div>
+            <div class="period-stat-grid period-stat-grid--2col-centered">
+                <div class="period-stat period-stat--compact-metric">
+                    <span class="period-stat-label period-stat-label--single-line">Avg Size</span>
                     <strong>${formatCurrencyCompact(metrics.avgDealSize)}</strong>
+                </div>
+                <div class="period-stat period-stat--compact-metric">
+                    <span class="period-stat-label period-stat-label--single-line">Median Size</span>
+                    <strong>${formatCurrencyCompact(metrics.medianDealSize)}</strong>
                 </div>
             </div>
 
@@ -1145,8 +1559,8 @@ function calculateMetrics(deals) {
         ? Math.max(...dealsWithAmounts.map(deal => deal.AmountValue))
         : 0;
 
-    const hiringCount = deals.filter(d => d.HiringFilter === 'Hiring').length;
-    const notHiringCount = deals.filter(d => d.HiringFilter === 'Not Hiring').length;
+    const hiringCount = deals.filter(d => d.HiringFilter === 'Yes').length;
+    const notHiringCount = deals.filter(d => d.HiringFilter === 'No').length;
     const hiringUnknownCount = total - hiringCount - notHiringCount;
 
     const linkedinPresent = deals.filter(d => d.LinkedInFilter === 'Present').length;
@@ -1313,11 +1727,11 @@ function renderViewLink(value) {
 
 function renderHiringCell(deal) {
     const filter = deal.HiringFilter;
-    if (filter === 'Hiring') {
-        return renderBadge('Hiring', 'positive');
+    if (filter === 'Yes') {
+        return renderBadge('Yes', 'positive');
     }
-    if (filter === 'Not Hiring') {
-        return renderBadge('Not Hiring', 'negative');
+    if (filter === 'No') {
+        return renderBadge('No', 'negative');
     }
     return '<span class="cell-muted">Unknown</span>';
 }
@@ -1364,6 +1778,7 @@ function sortDeals(column, toggle = true) {
 
     applyCurrentSort();
     displayStats(filteredDeals);
+    renderEnhancedPages(filteredDeals);
 
     const refDate = getReferenceDate(filteredDeals);
     const tableDeals = getRecentDeals(filteredDeals, refDate, 7);
@@ -1646,8 +2061,15 @@ function parseAmountCandidate(value) {
         numericValue *= 1e9;
     } else if (/\bmillion\b/.test(normalized) || /\bmn\b/.test(normalized) || /(?<![a-z])m(?![a-z])/.test(normalized)) {
         numericValue *= 1e6;
-    } else if (/\bthousand\b/.test(normalized) || /(?<![a-z])k(?![a-z])/.test(normalized)) {
+    } else     if (/\bthousand\b/.test(normalized) || /(?<![a-z])k(?![a-z])/.test(normalized)) {
         numericValue *= 1e3;
+    }
+
+    if (/\bcrore\b|\bcr\b/.test(normalized)) {
+        numericValue *= 1e7;
+    }
+    if (/\blakh\b|\blac\b/.test(normalized)) {
+        numericValue *= 1e5;
     }
 
     return numericValue;
@@ -1712,6 +2134,10 @@ function detectAmountCurrency(value) {
 function getDealExclusionReason(deal) {
     if (Number.isFinite(deal.AmountValue) && deal.AmountValue > MAX_REALISTIC_DEAL_AMOUNT) {
         return `Amount exceeds safety cap of ${formatCurrencyCompact(MAX_REALISTIC_DEAL_AMOUNT)}`;
+    }
+
+    if (Number.isFinite(deal.AmountValue) && deal.AmountValue > 0 && deal.AmountValue < MIN_REALISTIC_DEAL_AMOUNT) {
+        return `Amount below realism floor of ${formatCurrencyCompact(MIN_REALISTIC_DEAL_AMOUNT)}`;
     }
 
     return '';
@@ -1847,6 +2273,11 @@ function parseDateValue(value) {
         return null;
     }
 
+    if (/^\d+$/.test(cleaned) && cleaned.length >= 12) {
+        const epochMs = Number(cleaned);
+        return Number.isFinite(epochMs) ? epochMs : null;
+    }
+
     const timestamp = Date.parse(cleaned.includes('T') ? cleaned : `${cleaned}T00:00:00Z`);
     return Number.isFinite(timestamp) ? timestamp : null;
 }
@@ -1902,23 +2333,35 @@ function normalizeHiringValue(value) {
         return UNKNOWN_LABEL;
     }
 
-    if (normalized.includes('not hiring') || normalized === 'no' || normalized === 'false') {
-        return 'Not Hiring';
+    if (
+        normalized.includes('not hiring') ||
+        normalized.includes('no hiring') ||
+        normalized.includes('not actively hiring') ||
+        normalized === 'no' ||
+        normalized === 'false'
+    ) {
+        return 'No';
     }
 
-    if (normalized.includes('hiring') || normalized === 'yes' || normalized === 'true' || normalized.includes('open role')) {
-        return 'Hiring';
+    if (
+        normalized.includes('hiring') ||
+        normalized.includes('open role') ||
+        normalized.includes('actively hiring') ||
+        normalized === 'yes' ||
+        normalized === 'true'
+    ) {
+        return 'Yes';
     }
 
-    return toTitleCase(cleaned);
+    return UNKNOWN_LABEL;
 }
 
 function getHiringBadgeClass(hiringValue) {
-    if (hiringValue === 'Hiring') {
+    if (hiringValue === 'Yes') {
         return 'positive';
     }
 
-    if (hiringValue === 'Not Hiring') {
+    if (hiringValue === 'No') {
         return 'negative';
     }
 
@@ -2277,4 +2720,1338 @@ function escapeHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
+function insightSortableTh(tableKey, label, colIdx, sortType = 'string') {
+    const st = insightTableSort[tableKey];
+    const icon = insightSortGlyph(st ? st.col : -1, st ? st.dir : 'asc', colIdx);
+    return `<th scope="col" class="insight-sortable" data-sort-col="${colIdx}" data-sort-type="${escapeHtml(sortType)}">${escapeHtml(label)} <span class="insight-sort-icon">${icon}</span></th>`;
+}
+
+function insightSortGlyph(activeCol, activeDir, colIdx) {
+    if (activeCol !== colIdx) return '⇅';
+    return activeDir === 'asc' ? '↑' : '↓';
+}
+
+function insightRowSortAttrs(values) {
+    return values.map((v, i) => {
+        const raw = v === null || v === undefined ? '' : String(v);
+        return `data-sort${i}="${escapeHtml(raw)}"`;
+    }).join(' ');
+}
+
+function updateInsightSortHeaderIcons(tableEl, tableKey) {
+    const state = insightTableSort[tableKey];
+    const activeCol = state ? state.col : -1;
+    const activeDir = state ? state.dir : 'asc';
+    tableEl.querySelectorAll('thead th.insight-sortable').forEach(th => {
+        const col = Number(th.dataset.sortCol);
+        const icon = th.querySelector('.insight-sort-icon');
+        if (icon) {
+            icon.textContent = insightSortGlyph(activeCol, activeDir, col);
+        }
+    });
+}
+
+function getCellSortValue(tr, colIdx, sortType) {
+    const raw = tr.getAttribute(`data-sort${colIdx}`) || '';
+    if (sortType === 'number') {
+        if (raw === '') {
+            return Number.NEGATIVE_INFINITY;
+        }
+        const n = Number(raw);
+        return Number.isFinite(n) ? n : Number.NEGATIVE_INFINITY;
+    }
+    return cleanString(raw).toLowerCase();
+}
+
+function sortInsightTableBody(tableEl, tableKey) {
+    const state = insightTableSort[tableKey];
+    if (!state) return;
+
+    const tbody = tableEl.querySelector('tbody');
+    if (!tbody) return;
+
+    const th = tableEl.querySelector(`thead th.insight-sortable[data-sort-col="${state.col}"]`);
+    const sortType = (th && th.dataset.sortType) === 'number' ? 'number' : 'string';
+    const dir = state.dir === 'desc' ? -1 : 1;
+
+    const rows = [...tbody.querySelectorAll('tr')];
+    rows.sort((a, b) => {
+        const va = getCellSortValue(a, state.col, sortType);
+        const vb = getCellSortValue(b, state.col, sortType);
+        if (sortType === 'number') {
+            return compareNumbers(va, vb) * dir;
+        }
+        return cleanString(va).localeCompare(cleanString(vb), undefined, { numeric: true, sensitivity: 'base' }) * dir;
+    });
+    rows.forEach(row => tbody.appendChild(row));
+    updateInsightSortHeaderIcons(tableEl, tableKey);
+}
+
+function applyStoredInsightSorts(root) {
+    if (!root) return;
+    root.querySelectorAll('[data-insight-table] table').forEach(tableEl => {
+        const wrap = tableEl.closest('[data-insight-table]');
+        const key = wrap && wrap.dataset.insightTable;
+        if (key && insightTableSort[key]) {
+            sortInsightTableBody(tableEl, key);
+        } else if (key) {
+            updateInsightSortHeaderIcons(tableEl, key);
+        }
+    });
+}
+
+function handleInsightTableHeaderClick(th) {
+    const tableEl = th.closest('table');
+    const wrap = th.closest('[data-insight-table]');
+    if (!tableEl || !wrap) return;
+
+    const tableKey = wrap.dataset.insightTable;
+    if (!tableKey) return;
+
+    const col = Number(th.dataset.sortCol);
+    if (!Number.isFinite(col)) return;
+
+    const prev = insightTableSort[tableKey];
+    if (prev && prev.col === col) {
+        insightTableSort[tableKey] = { col, dir: prev.dir === 'asc' ? 'desc' : 'asc' };
+    } else {
+        insightTableSort[tableKey] = { col, dir: 'asc' };
+    }
+    sortInsightTableBody(tableEl, tableKey);
+}
+
+document.addEventListener('click', event => {
+    const th = event.target.closest('[data-insight-table] thead th.insight-sortable');
+    if (!th) return;
+    event.preventDefault();
+    handleInsightTableHeaderClick(th);
+});
+
 window.sortDeals = sortDeals;
+
+function setupPageNavigation() {
+    const tabs = Array.from(document.querySelectorAll('.page-tab'));
+    const countryFilterGroup = document.getElementById('country-intel-filter-group');
+    const countryPageTab = tabs.find(tab => tab.dataset.pageTarget === 'page-3');
+    tabs.forEach(tab => {
+        tab.setAttribute('role', 'tab');
+        tab.setAttribute('aria-selected', tab.classList.contains('active') ? 'true' : 'false');
+        tab.classList.toggle('page-tab-compact', tab !== countryPageTab);
+    });
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            const target = tab.dataset.pageTarget;
+            if (!target) return;
+            activePageId = target;
+            tabs.forEach(btn => {
+                const isActive = btn === tab;
+                btn.classList.toggle('active', isActive);
+                btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+            });
+            document.querySelectorAll('.dashboard-page').forEach(page => {
+                page.classList.toggle('active', page.id === target);
+            });
+            if (countryFilterGroup) {
+                countryFilterGroup.classList.toggle('hidden', target !== 'page-3');
+            }
+            if (target === 'page-3') {
+                updateCountryContextSubtitle(selectedCountryInsight || 'All countries');
+            }
+            if (target === 'page-2' && leafletMapInstance) {
+                // Allow the page to become visible before recalculating map dimensions
+                setTimeout(() => leafletMapInstance.invalidateSize(), 50);
+            }
+        });
+    });
+    if (countryFilterGroup) {
+        countryFilterGroup.classList.toggle('hidden', activePageId !== 'page-3');
+    }
+    updateCountryContextSubtitle(selectedCountryInsight || 'All countries');
+    document.addEventListener('click', event => {
+        const link = event.target.closest('.alert-link[data-target-page]');
+        if (!link) return;
+        event.preventDefault();
+        const targetPage = cleanString(link.dataset.targetPage);
+        if (!targetPage) return;
+        const targetTab = tabs.find(tab => tab.dataset.pageTarget === targetPage);
+        if (targetTab) {
+            targetTab.click();
+        }
+        const anchorId = cleanString(link.dataset.targetAnchor);
+        if (anchorId) {
+            const anchor = document.getElementById(anchorId);
+            if (anchor) {
+                anchor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+    });
+}
+
+function renderEnhancedPages(deals) {
+    try { renderGlobalOverviewPage(deals); } catch (err) { console.error('Error rendering Global Overview page:', err); }
+    try { renderCountryIntelligencePage(deals); } catch (err) { console.error('Error rendering Country Intelligence page:', err); }
+    try { renderInvestorStartupPage(deals); } catch (err) { console.error('Error rendering Investor & Startup page:', err); }
+}
+
+function renderGlobalOverviewPage(deals) {
+    const container = document.getElementById('global-overview-content');
+    if (!container) return;
+
+    const allCountries = summarizeCountries(deals);
+    const topCountries = allCountries.slice(0, 10);
+    const investors = summarizeInvestors(deals);
+    const daily = summarizeDailyDeals(deals, 14);
+    const alerts = buildSeverityAlerts(deals, topCountries);
+    const maturityScores = computeEcosystemMaturityScores(deals);
+    const funnelData = computeStageFunnel(deals);
+    const regionalData = computeRegionalDominance(deals);
+    const heatSignals = computeCountryHeatSignals(deals);
+
+    container.innerHTML = `
+        <div class="insight-grid">
+            <section class="insight-card span-12">
+                <h2>Global Overview</h2>
+                <div class="kpi-grid">
+                    ${buildKpiTile('Total Deals', deals.length.toLocaleString())}
+                    ${buildKpiTile('Total Funding', formatCurrencyCompact(deals.filter(d => Number.isFinite(d.AmountValue)).reduce((s, d) => s + d.AmountValue, 0)))}
+                    ${buildKpiTile('Active Countries', new Set(deals.map(d => d.Nation).filter(Boolean)).size.toLocaleString())}
+                    ${buildKpiTile('Unique Investors', investors.length.toLocaleString())}
+                </div>
+            </section>
+
+            <section class="insight-card span-7">
+                <h3>World Map (All Nations by Deal Count)</h3>
+                <div id="world-map-leaflet" class="world-map-leaflet"></div>
+            </section>
+
+            <section class="insight-card span-5">
+                <h3>Daily Trend (Last 14 Days)</h3>
+                <div class="trend-bars">${buildDailyTrendBars(daily)}</div>
+            </section>
+
+            <section class="insight-card span-8">
+                <h3>Country Leaderboard</h3>
+                <div class="table-scroll-wrap" data-insight-table="leaderboard">
+                    <table class="simple-table sticky-header-table">
+                        <thead><tr>
+                            ${insightSortableTh('leaderboard', 'Country', 0)}
+                            ${insightSortableTh('leaderboard', 'Deals', 1, 'number')}
+                            ${insightSortableTh('leaderboard', 'Funding', 2, 'number')}
+                        </tr></thead>
+                        <tbody>
+                            ${allCountries.map(country => `<tr ${insightRowSortAttrs([country.name, country.deals, country.funding])}><td>${escapeHtml(country.name)}</td><td>${country.deals.toLocaleString()}</td><td>${formatCurrencyCompact(country.funding)}</td></tr>`).join('') || '<tr><td colspan="3">No data</td></tr>'}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="insight-card span-4">
+                <h3>Alerts Panel</h3>
+                ${renderSeverityAlerts(alerts)}
+            </section>
+
+            <section class="insight-card span-12">
+                <h3>Country Heat Signals (4-Week Rolling Z-Score)</h3>
+                <p class="insight-sub">Z-score of weekly deal count vs 8-week baseline. Positive = heating up, Negative = cooling down.</p>
+                ${buildHeatSignalsTable(heatSignals)}
+            </section>
+
+            <section class="insight-card span-6" id="data-freshness">
+                <h3>Data Freshness by Country</h3>
+                <p class="insight-sub">Last captured is the calendar date of the newest deal in your current filters for that country (from each deal’s capture date). Lag is days since that date compared to the newest capture in the filtered set. It reflects pipeline timing, not whether the market had zero deals on a given day.</p>
+                ${renderDataFreshnessWidget(deals)}
+            </section>
+
+            <section class="insight-card span-6" id="anomaly-audit">
+                <h3>Anomaly Audit Panel</h3>
+                <p class="insight-sub">Unified review of high and low unrealistic amounts from outlier.json.</p>
+                ${renderAnomalyAuditPanel()}
+            </section>
+
+            <section class="insight-card span-12">
+                <h3>Ecosystem Maturity Score by Country</h3>
+                <p class="insight-sub">Composite score (0–100) blending deal count (25%), avg deal size (25%), sector diversity (20%), investor diversity (20%), and hiring rate (10%).</p>
+                ${buildMaturityScoreTable(maturityScores)}
+            </section>
+
+            <section class="insight-card span-5">
+                <h3>Stage Progression Funnel (Seed → Series A)</h3>
+                <p class="insight-sub">Pipeline health: fraction of Seed-stage startups from 6+ months ago that appear again at Series A.</p>
+                ${buildStageFunnel(funnelData)}
+            </section>
+
+            <section class="insight-card span-7">
+                <h3>Regional Dominance — Fastest Growing Subregions</h3>
+                <p class="insight-sub">Deal-count growth comparing the last 30 days vs the prior 30 days, by subregion.</p>
+                ${buildRegionalDominanceChart(regionalData)}
+            </section>
+        </div>
+    `;
+
+    initLeafletWorldMap(allCountries);
+    applyStoredInsightSorts(container);
+}
+
+// ─── Ecosystem Maturity Score ────────────────────────────────────────────────
+
+function computeEcosystemMaturityScores(deals) {
+    const countryMap = new Map();
+    deals.forEach(deal => {
+        const name = cleanString(deal.Nation) || UNKNOWN_LABEL;
+        if (!countryMap.has(name)) {
+            countryMap.set(name, { name, deals: [], investors: new Set(), sectors: new Set(), hiringCount: 0 });
+        }
+        const row = countryMap.get(name);
+        row.deals.push(deal);
+        splitInvestors(deal.Investors).forEach(inv => row.investors.add(inv));
+        row.sectors.add(classifyDealSector(deal));
+        if (deal.HiringFilter === 'Yes') row.hiringCount += 1;
+    });
+
+    const countries = [...countryMap.values()].filter(c => c.deals.length >= 2);
+    if (!countries.length) return [];
+
+    const raw = countries.map(c => {
+        const dealCount = c.deals.length;
+        const fundedDeals = c.deals.filter(d => Number.isFinite(d.AmountValue));
+        const avgDealSize = fundedDeals.length ? fundedDeals.reduce((s, d) => s + d.AmountValue, 0) / fundedDeals.length : 0;
+        const medianDealSize = getMedian(fundedDeals.map(d => d.AmountValue));
+        const sectorDiversity = c.sectors.size;
+        const investorDiversity = c.investors.size;
+        const hiringRate = dealCount ? (c.hiringCount || 0) / dealCount : 0;
+        return { name: c.name, dealCount, avgDealSize, medianDealSize, sectorDiversity, investorDiversity, hiringRate };
+    });
+
+    const maxDeal = Math.max(...raw.map(r => r.dealCount), 1);
+    const maxAvg = Math.max(...raw.map(r => r.avgDealSize), 1);
+    const maxSector = Math.max(...raw.map(r => r.sectorDiversity), 1);
+    const maxInvestor = Math.max(...raw.map(r => r.investorDiversity), 1);
+
+    return raw.map(r => {
+        const score = Math.round(
+            (r.dealCount / maxDeal) * 25 +
+            (r.avgDealSize / maxAvg) * 25 +
+            (r.sectorDiversity / maxSector) * 20 +
+            (r.investorDiversity / maxInvestor) * 20 +
+            r.hiringRate * 10
+        );
+        return {
+            name: r.name,
+            score,
+            dealCount: r.dealCount,
+            avgDealSize: r.avgDealSize,
+            medianDealSize: r.medianDealSize,
+            sectorDiversity: r.sectorDiversity,
+            investorDiversity: r.investorDiversity,
+            hiringRate: r.hiringRate
+        };
+    }).sort((a, b) => b.score - a.score);
+}
+
+function classifyDealSector(deal) {
+    const text = `${cleanString(deal.Description)} ${cleanString(deal.Startup_Name)}`.toLowerCase();
+    if (/genai|llm|foundation model|chatbot|language model/.test(text)) return 'GenAI';
+    if (/infrastructure|compute|cloud|gpu|chip|semiconductor/.test(text)) return 'Infrastructure';
+    if (/health|biotech|clinical|medtech/.test(text)) return 'Healthcare AI';
+    if (/enterprise|workflow|saas|automation/.test(text)) return 'Enterprise AI';
+    if (/robot|autonomous|drone/.test(text)) return 'Robotics';
+    if (/fintech|bank|payments|insurance/.test(text)) return 'Fintech AI';
+    if (/security|cyber/.test(text)) return 'Security AI';
+    if (/climate|energy|sustainab/.test(text)) return 'Climate AI';
+    return 'Other AI';
+}
+
+function buildMaturityScoreTable(scores) {
+    if (!scores.length) return '<p>Not enough country data to compute maturity scores.</p>';
+    const rows = scores.map((s, i) => {
+        const rank = i + 1;
+        const hiringPct = Math.round(s.hiringRate * 100);
+        return `
+        <tr ${insightRowSortAttrs([rank, s.name, s.score, s.dealCount, s.avgDealSize, s.medianDealSize, s.sectorDiversity, s.investorDiversity, hiringPct])}>
+            <td><strong>${rank}</strong></td>
+            <td>${escapeHtml(s.name)}</td>
+            <td>
+                <div class="maturity-bar-wrap">
+                    <div class="maturity-bar" style="width:${s.score}%"></div>
+                    <span class="maturity-score-label">${s.score}</span>
+                </div>
+            </td>
+            <td>${s.dealCount}</td>
+            <td>${formatCurrencyCompact(s.avgDealSize)}</td>
+            <td>${formatCurrencyCompact(s.medianDealSize)}</td>
+            <td>${s.sectorDiversity}</td>
+            <td>${s.investorDiversity}</td>
+            <td>${hiringPct}%</td>
+        </tr>`;
+    }).join('');
+    return `
+        <div class="table-scroll-wrap" data-insight-table="maturity">
+            <table class="simple-table maturity-table sticky-header-table">
+                <thead><tr>
+                    ${insightSortableTh('maturity', '#', 0, 'number')}
+                    ${insightSortableTh('maturity', 'Country', 1)}
+                    ${insightSortableTh('maturity', 'Score (0–100)', 2, 'number')}
+                    ${insightSortableTh('maturity', 'Deals', 3, 'number')}
+                    ${insightSortableTh('maturity', 'Avg Size', 4, 'number')}
+                    ${insightSortableTh('maturity', 'Median Size', 5, 'number')}
+                    ${insightSortableTh('maturity', 'Sectors', 6, 'number')}
+                    ${insightSortableTh('maturity', 'Investors', 7, 'number')}
+                    ${insightSortableTh('maturity', 'Hiring Rate', 8, 'number')}
+                </tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>`;
+}
+
+// ─── Stage Progression Funnel ────────────────────────────────────────────────
+
+const SEED_ROUNDS = new Set(['Pre-Seed', 'Seed']);
+const SERIES_A_ROUNDS = new Set(['Series A']);
+const SERIES_B_PLUS_ROUNDS = new Set(['Series B', 'Series C', 'Series D+', 'Growth/Late Stage']);
+const SEED_MATURITY_PERIOD_DAYS = 182;
+
+function computeStageFunnel(deals) {
+    const refDate = getReferenceDate(deals);
+    const sixMonthsAgoMs = refDate.getTime() - (SEED_MATURITY_PERIOD_DAYS * 24 * 60 * 60 * 1000);
+
+    const seedStartups = new Set(
+        deals
+            .filter(d => SEED_ROUNDS.has(d.RoundFilter) && Number.isFinite(d.DateValue) && d.DateValue <= sixMonthsAgoMs)
+            .map(d => cleanString(d.Startup_Name).toLowerCase())
+            .filter(Boolean)
+    );
+
+    const seriesAStartups = new Set(
+        deals
+            .filter(d => SERIES_A_ROUNDS.has(d.RoundFilter))
+            .map(d => cleanString(d.Startup_Name).toLowerCase())
+            .filter(Boolean)
+    );
+
+    const seriesBPlusStartups = new Set(
+        deals
+            .filter(d => SERIES_B_PLUS_ROUNDS.has(d.RoundFilter))
+            .map(d => cleanString(d.Startup_Name).toLowerCase())
+            .filter(Boolean)
+    );
+
+    const seedCount = seedStartups.size;
+    const progressedToA = [...seedStartups].filter(s => seriesAStartups.has(s)).length;
+    const progressedToBPlus = [...seedStartups].filter(s => seriesBPlusStartups.has(s)).length;
+    const conversionRate = seedCount ? Math.round((progressedToA / seedCount) * 100) : 0;
+
+    return { seedCount, progressedToA, progressedToBPlus, conversionRate };
+}
+
+function buildStageFunnel(data) {
+    const { seedCount, progressedToA, progressedToBPlus, conversionRate } = data;
+    if (!seedCount) return '<p>Not enough historical Seed data available for funnel analysis.</p>';
+
+    const stages = [
+        { label: 'Seed (6m+ ago)', count: seedCount, pct: 100, cssClass: 'funnel-bar-seed' },
+        { label: 'Reached Series A', count: progressedToA, pct: seedCount ? Math.round((progressedToA / seedCount) * 100) : 0, cssClass: 'funnel-bar-series-a' },
+        { label: 'Reached Series B+', count: progressedToBPlus, pct: seedCount ? Math.round((progressedToBPlus / seedCount) * 100) : 0, cssClass: 'funnel-bar-series-b' }
+    ];
+
+    const stageRows = stages.map(s => `
+        <div class="funnel-stage">
+            <div class="funnel-bar-wrap">
+                <div class="funnel-bar ${escapeHtml(s.cssClass)}" style="width:${s.pct}%;"></div>
+            </div>
+            <div class="funnel-labels">
+                <span class="funnel-name">${escapeHtml(s.label)}</span>
+                <span class="funnel-count">${s.count.toLocaleString()} <em>(${s.pct}%)</em></span>
+            </div>
+        </div>`).join('');
+
+    return `
+        <div class="funnel-summary">Seed → Series A conversion rate: <strong>${conversionRate}%</strong></div>
+        <div class="funnel-chart">${stageRows}</div>`;
+}
+
+// ─── Regional Dominance ──────────────────────────────────────────────────────
+
+const COUNTRY_SUBREGION = {
+    'India': 'South Asia', 'Pakistan': 'South Asia', 'Bangladesh': 'South Asia', 'Sri Lanka': 'South Asia', 'Nepal': 'South Asia',
+    'China': 'East Asia', 'Japan': 'East Asia', 'South Korea': 'East Asia', 'Taiwan': 'East Asia', 'Hong Kong': 'East Asia',
+    'Singapore': 'Southeast Asia', 'Indonesia': 'Southeast Asia', 'Malaysia': 'Southeast Asia', 'Vietnam': 'Southeast Asia', 'Thailand': 'Southeast Asia', 'Philippines': 'Southeast Asia',
+    'USA': 'North America', 'United States': 'North America', 'Canada': 'North America', 'Mexico': 'North America',
+    'United Kingdom': 'Western Europe', 'Britain': 'Western Europe', 'Germany': 'Western Europe', 'France': 'Western Europe', 'Netherlands': 'Western Europe', 'Sweden': 'Western Europe', 'Switzerland': 'Western Europe', 'Spain': 'Western Europe', 'Italy': 'Western Europe', 'Denmark': 'Western Europe', 'Finland': 'Western Europe', 'Norway': 'Western Europe',
+    'Israel': 'Middle East', 'UAE': 'Middle East', 'Dubai': 'Middle East', 'Saudi Arabia': 'Middle East', 'Qatar': 'Middle East', 'Turkey': 'Middle East', 'MENA': 'Middle East',
+    'Brazil': 'Latin America', 'Argentina': 'Latin America', 'Chile': 'Latin America', 'Colombia': 'Latin America',
+    'Australia': 'Oceania', 'New Zealand': 'Oceania',
+    'Nigeria': 'Africa', 'Kenya': 'Africa', 'South Africa': 'Africa', 'Egypt': 'Africa'
+};
+
+function computeRegionalDominance(deals) {
+    const refDate = getReferenceDate(deals);
+    const now = refDate.getTime();
+    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+    const recentStart = now - thirtyDaysMs;
+    const priorStart = now - 2 * thirtyDaysMs;
+
+    const regionMap = new Map();
+    deals.forEach(deal => {
+        const region = COUNTRY_SUBREGION[deal.Nation] || 'Other';
+        if (!regionMap.has(region)) regionMap.set(region, { region, recent: 0, prior: 0 });
+        const row = regionMap.get(region);
+        if (Number.isFinite(deal.DateValue)) {
+            if (deal.DateValue >= recentStart) row.recent += 1;
+            else if (deal.DateValue >= priorStart) row.prior += 1;
+        }
+    });
+
+    return [...regionMap.values()]
+        .map(r => {
+            const growth = r.prior === 0
+                ? (r.recent > 0 ? 100 : 0)
+                : Math.round(((r.recent - r.prior) / r.prior) * 100);
+            return { ...r, growth };
+        })
+        .filter(r => r.recent > 0 || r.prior > 0)
+        .sort((a, b) => b.growth - a.growth);
+}
+
+function buildRegionalDominanceChart(regions) {
+    if (!regions.length) return '<p>No regional data available.</p>';
+    const maxDeals = Math.max(...regions.map(r => Math.max(r.recent, r.prior)), 1);
+    const rows = regions.map(r => {
+        const growthClass = r.growth > 0 ? 'growth-positive' : (r.growth < 0 ? 'growth-negative' : 'growth-neutral');
+        const growthLabel = r.growth > 0 ? `+${r.growth}%` : `${r.growth}%`;
+        const recentPct = Math.max(2, Math.round((r.recent / maxDeals) * 100));
+        const priorPct = Math.max(2, Math.round((r.prior / maxDeals) * 100));
+        return `
+            <div class="region-row">
+                <div class="region-name">${escapeHtml(r.region)}</div>
+                <div class="region-bars">
+                    <div class="region-bar region-bar-recent" style="width:${recentPct}%" title="Last 30d: ${r.recent} deals"></div>
+                    <div class="region-bar region-bar-prior" style="width:${priorPct}%" title="Prior 30d: ${r.prior} deals"></div>
+                </div>
+                <div class="region-stats">
+                    <span class="region-deals">${r.recent} <em>vs</em> ${r.prior}</span>
+                    <span class="region-growth ${escapeHtml(growthClass)}">${escapeHtml(growthLabel)}</span>
+                </div>
+            </div>`;
+    }).join('');
+
+    return `
+        <div class="region-legend">
+            <span class="legend-dot legend-recent"></span>Last 30d &nbsp;
+            <span class="legend-dot legend-prior"></span>Prior 30d
+        </div>
+        <div class="region-chart">${rows}</div>`;
+}
+
+function renderCountryIntelligencePage(deals) {
+    const container = document.getElementById('country-intelligence-content');
+    if (!container) return;
+
+    const countries = summarizeCountries(deals);
+    if (!countries.length) {
+        container.innerHTML = '<div class="insight-card"><p>No country-level data for current filters.</p></div>';
+        return;
+    }
+
+    if (!selectedCountryInsight || !countries.find(c => c.name === selectedCountryInsight)) {
+        selectedCountryInsight = countries[0].name;
+    }
+
+    const countryDeals = deals.filter(deal => deal.Nation === selectedCountryInsight);
+    const countryFunding = countryDeals.filter(d => Number.isFinite(d.AmountValue)).reduce((s, d) => s + d.AmountValue, 0);
+    const monthlyTrend = summarizeMonthlyFunding(countryDeals, 6);
+    const roundMix = summarizeRoundMix(countryDeals).slice(0, 8);
+    const sectorMix = summarizeSectors(countryDeals).slice(0, 9);
+    const topStartups = [...countryDeals]
+        .sort((a, b) => (b.AmountValue || 0) - (a.AmountValue || 0))
+        .slice(0, 10);
+
+    const velocity = computeDealVelocity(deals, selectedCountryInsight);
+    const sectorVelocity = computeSectorVelocity(countryDeals);
+    const firstTimers = findFirstTimeFundedStartups(deals, selectedCountryInsight);
+
+    container.innerHTML = `
+        <div class="insight-card country-selector">
+            <label for="country-intel-select"><strong>Country:</strong></label>
+            <select id="country-intel-select">
+                ${countries.map(country => `<option value="${escapeHtml(country.name)}" ${country.name === selectedCountryInsight ? 'selected' : ''}>${escapeHtml(country.name)}</option>`).join('')}
+            </select>
+        </div>
+
+        <div class="insight-grid">
+            <section class="insight-card span-12">
+                <h2>${escapeHtml(selectedCountryInsight)} Intelligence</h2>
+                <div class="kpi-grid">
+                    ${buildKpiTile('Country Deals', countryDeals.length.toLocaleString())}
+                    ${buildKpiTile('Country Funding', formatCurrencyCompact(countryFunding))}
+                    ${buildKpiTile('Unique Investors', summarizeInvestors(countryDeals).length.toLocaleString())}
+                    ${buildKpiTile('Actively Hiring', countryDeals.filter(d => d.HiringFilter === 'Yes').length.toLocaleString())}
+                </div>
+            </section>
+
+            <section class="insight-card span-6">
+                <h3>Funding Trend (Last 6 Months)</h3>
+                <div class="trend-bars">${buildMonthlyFundingBars(monthlyTrend)}</div>
+            </section>
+
+            <section class="insight-card span-6">
+                <h3>Round-Stage Mix</h3>
+                ${roundMix.map(row => `<div class="mix-row"><span>${escapeHtml(row.name)}</span><div class="mix-bar" style="width:${row.pct}%;"></div><strong>${row.count}</strong></div>`).join('') || '<p>No round data.</p>'}
+            </section>
+
+            <section class="insight-card span-6">
+                <h3>AI Sector Treemap</h3>
+                <div class="treemap-grid treemap-grid-2col">${sectorMix.map(sector => `<div class="treemap-cell"><strong>${escapeHtml(sector.name)}</strong><br><span>${sector.count} deals</span></div>`).join('') || '<p>No sector data.</p>'}</div>
+            </section>
+
+            <section class="insight-card span-6">
+                <h3>Top Startups</h3>
+                <div class="insight-table-wrap" data-insight-table="country-top-startups">
+                    <table class="simple-table sticky-header-table"><thead><tr>
+                        ${insightSortableTh('country-top-startups', 'Startup', 0)}
+                        ${insightSortableTh('country-top-startups', 'Round', 1)}
+                        ${insightSortableTh('country-top-startups', 'Amount', 2, 'number')}
+                    </tr></thead><tbody>
+                        ${topStartups.map(deal => {
+        const name = cleanString(deal.Startup_Name) || 'N/A';
+        const round = cleanString(deal.RoundFilter) || 'N/A';
+        const amt = Number.isFinite(deal.AmountValue) ? deal.AmountValue : '';
+        return `<tr ${insightRowSortAttrs([name, round, amt])}><td>${escapeHtml(name)}</td><td>${escapeHtml(round)}</td><td>${escapeHtml(formatDealAmountForTable(deal))}</td></tr>`;
+    }).join('') || '<tr><td colspan="3">No startups found</td></tr>'}
+                    </tbody></table>
+                </div>
+            </section>
+
+            <section class="insight-card span-12">
+                <h3>Deal Velocity — Day-over-Day, Week-over-Week &amp; Month-over-Month</h3>
+                <p class="insight-sub">% change in deal count and funding for <strong>${escapeHtml(selectedCountryInsight)}</strong> vs prior period.</p>
+                ${buildDealVelocityPanel(velocity)}
+            </section>
+
+            <section class="insight-card span-12">
+                <h3>Sector Velocity (WoW Deal Count)</h3>
+                <p class="insight-sub">Week-over-week change in deal count per AI sector.</p>
+                ${buildSectorVelocityTable(sectorVelocity)}
+            </section>
+
+            <section class="insight-card span-12">
+                <h3>🆕 First-Time Funded Startups This Week — ${escapeHtml(selectedCountryInsight)}</h3>
+                <p class="insight-sub">Startups appearing for the first time in the dataset within the most recent 7-day window.</p>
+                ${buildFirstTimeFundedTable(firstTimers)}
+            </section>
+        </div>
+    `;
+
+    const selector = document.getElementById('country-intel-select');
+    if (selector) {
+        selector.addEventListener('change', event => {
+            selectedCountryInsight = event.target.value;
+            syncGlobalCountrySelector(countries);
+            updateCountryContextSubtitle(selectedCountryInsight);
+            renderCountryIntelligencePage(filteredDeals);
+        });
+    }
+
+    const globalSelector = document.getElementById('country-intel-select-global');
+    if (globalSelector) {
+        globalSelector.value = selectedCountryInsight;
+    }
+
+    syncGlobalCountrySelector(countries);
+    updateCountryContextSubtitle(selectedCountryInsight);
+    applyStoredInsightSorts(container);
+}
+
+// ─── Deal Velocity (DoD / WoW / MoM) ─────────────────────────────────────────
+
+function calcPctChange(curr, prev) {
+    return prev === 0 ? (curr > 0 ? 100 : 0) : Math.round(((curr - prev) / prev) * 100);
+}
+
+function computeDealVelocity(deals, country) {
+    const refDate = getReferenceDate(deals);
+    const now = refDate.getTime();
+    const dayMs = 24 * 60 * 60 * 1000;
+
+    const thisWeekStart = now - 7 * dayMs;
+    const lastWeekStart = now - 14 * dayMs;
+    const thisMonthStart = now - 30 * dayMs;
+    const lastMonthStart = now - 60 * dayMs;
+    const thisDayStart = now - dayMs;
+    const lastDayStart = now - 2 * dayMs;
+
+    const scope = country ? deals.filter(d => d.Nation === country) : deals;
+
+    function filterWindow(d, start, end) {
+        return d.filter(x => Number.isFinite(x.DateValue) && x.DateValue >= start && x.DateValue < end);
+    }
+
+    const thisWeek = filterWindow(scope, thisWeekStart, now);
+    const lastWeek = filterWindow(scope, lastWeekStart, thisWeekStart);
+    const thisMonth = filterWindow(scope, thisMonthStart, now);
+    const lastMonth = filterWindow(scope, lastMonthStart, thisMonthStart);
+    const thisDay = filterWindow(scope, thisDayStart, now);
+    const lastDay = filterWindow(scope, lastDayStart, thisDayStart);
+
+    function funding(arr) { return arr.filter(d => Number.isFinite(d.AmountValue)).reduce((s, d) => s + d.AmountValue, 0); }
+
+    return {
+        dod: {
+            dealCountChange: calcPctChange(thisDay.length, lastDay.length),
+            fundingChange: calcPctChange(funding(thisDay), funding(lastDay)),
+            thisDayDeals: thisDay.length,
+            lastDayDeals: lastDay.length,
+            thisDayFunding: funding(thisDay),
+            lastDayFunding: funding(lastDay)
+        },
+        wow: {
+            dealCountChange: calcPctChange(thisWeek.length, lastWeek.length),
+            fundingChange: calcPctChange(funding(thisWeek), funding(lastWeek)),
+            thisWeekDeals: thisWeek.length,
+            lastWeekDeals: lastWeek.length,
+            thisWeekFunding: funding(thisWeek),
+            lastWeekFunding: funding(lastWeek)
+        },
+        mom: {
+            dealCountChange: calcPctChange(thisMonth.length, lastMonth.length),
+            fundingChange: calcPctChange(funding(thisMonth), funding(lastMonth)),
+            thisMonthDeals: thisMonth.length,
+            lastMonthDeals: lastMonth.length,
+            thisMonthFunding: funding(thisMonth),
+            lastMonthFunding: funding(lastMonth)
+        }
+    };
+}
+
+function buildDealVelocityPanel(v) {
+    function badge(pct) {
+        const cls = pct > 0 ? 'velocity-up' : (pct < 0 ? 'velocity-down' : 'velocity-flat');
+        const arrow = pct > 0 ? '▲' : (pct < 0 ? '▼' : '—');
+        return `<span class="velocity-badge ${escapeHtml(cls)}">${arrow} ${pct > 0 ? '+' : ''}${pct}%</span>`;
+    }
+    return `
+        <div class="velocity-grid velocity-grid-3">
+            <div class="velocity-card">
+                <div class="velocity-period">Day-over-Day</div>
+                <div class="velocity-metric">
+                    <span class="velocity-label">Deal Count</span>
+                    <span class="velocity-nums">${v.dod.thisDayDeals} <em>vs</em> ${v.dod.lastDayDeals}</span>
+                    ${badge(v.dod.dealCountChange)}
+                </div>
+                <div class="velocity-metric">
+                    <span class="velocity-label">Funding</span>
+                    <span class="velocity-nums">${formatCurrencyCompact(v.dod.thisDayFunding)} <em>vs</em> ${formatCurrencyCompact(v.dod.lastDayFunding)}</span>
+                    ${badge(v.dod.fundingChange)}
+                </div>
+            </div>
+            <div class="velocity-card">
+                <div class="velocity-period">Week-over-Week</div>
+                <div class="velocity-metric">
+                    <span class="velocity-label">Deal Count</span>
+                    <span class="velocity-nums">${v.wow.thisWeekDeals} <em>vs</em> ${v.wow.lastWeekDeals}</span>
+                    ${badge(v.wow.dealCountChange)}
+                </div>
+                <div class="velocity-metric">
+                    <span class="velocity-label">Funding</span>
+                    <span class="velocity-nums">${formatCurrencyCompact(v.wow.thisWeekFunding)} <em>vs</em> ${formatCurrencyCompact(v.wow.lastWeekFunding)}</span>
+                    ${badge(v.wow.fundingChange)}
+                </div>
+            </div>
+            <div class="velocity-card">
+                <div class="velocity-period">Month-over-Month</div>
+                <div class="velocity-metric">
+                    <span class="velocity-label">Deal Count</span>
+                    <span class="velocity-nums">${v.mom.thisMonthDeals} <em>vs</em> ${v.mom.lastMonthDeals}</span>
+                    ${badge(v.mom.dealCountChange)}
+                </div>
+                <div class="velocity-metric">
+                    <span class="velocity-label">Funding</span>
+                    <span class="velocity-nums">${formatCurrencyCompact(v.mom.thisMonthFunding)} <em>vs</em> ${formatCurrencyCompact(v.mom.lastMonthFunding)}</span>
+                    ${badge(v.mom.fundingChange)}
+                </div>
+            </div>
+        </div>`;
+}
+
+function computeSectorVelocity(countryDeals) {
+    const refDate = getReferenceDate(countryDeals.length ? countryDeals : []);
+    const now = refDate.getTime();
+    const dayMs = 24 * 60 * 60 * 1000;
+    const thisWeekStart = now - 7 * dayMs;
+    const lastWeekStart = now - 14 * dayMs;
+
+    const sectors = ['GenAI', 'Infrastructure', 'Healthcare AI', 'Enterprise AI', 'Robotics', 'Fintech AI', 'Security AI', 'Climate AI', 'Other AI'];
+    return sectors.map(sector => {
+        const thisWeek = countryDeals.filter(d => Number.isFinite(d.DateValue) && d.DateValue >= thisWeekStart && classifyDealSector(d) === sector).length;
+        const lastWeek = countryDeals.filter(d => Number.isFinite(d.DateValue) && d.DateValue >= lastWeekStart && d.DateValue < thisWeekStart && classifyDealSector(d) === sector).length;
+        const pct = calcPctChange(thisWeek, lastWeek);
+        return { sector, thisWeek, lastWeek, pct };
+    }).filter(r => r.thisWeek > 0 || r.lastWeek > 0);
+}
+
+function buildSectorVelocityTable(rows) {
+    if (!rows.length) return '<p>No sector data for selected country.</p>';
+    const tableRows = rows.map(r => {
+        const cls = r.pct > 0 ? 'velocity-up' : (r.pct < 0 ? 'velocity-down' : 'velocity-flat');
+        const arrow = r.pct > 0 ? '▲' : (r.pct < 0 ? '▼' : '—');
+        return `<tr ${insightRowSortAttrs([r.sector, r.thisWeek, r.lastWeek, r.pct])}>
+            <td>${escapeHtml(r.sector)}</td>
+            <td>${r.thisWeek}</td>
+            <td>${r.lastWeek}</td>
+            <td><span class="velocity-badge ${escapeHtml(cls)}">${arrow} ${r.pct > 0 ? '+' : ''}${r.pct}%</span></td>
+        </tr>`;
+    }).join('');
+    return `
+        <div class="insight-table-wrap insight-table-wrap--wide" data-insight-table="sector-velocity">
+            <table class="simple-table sticky-header-table">
+                <thead><tr>
+                    ${insightSortableTh('sector-velocity', 'Sector', 0)}
+                    ${insightSortableTh('sector-velocity', 'This Week', 1, 'number')}
+                    ${insightSortableTh('sector-velocity', 'Last Week', 2, 'number')}
+                    ${insightSortableTh('sector-velocity', 'WoW Change', 3, 'number')}
+                </tr></thead>
+                <tbody>${tableRows}</tbody>
+            </table>
+        </div>
+    `;
+}
+
+// ─── Heat Signals (4-week rolling z-score) ───────────────────────────────────
+
+function computeCountryHeatSignals(deals) {
+    const refDate = getReferenceDate(deals);
+    const now = refDate.getTime();
+    const weekMs = 7 * 24 * 60 * 60 * 1000;
+
+    const countryNames = [...new Set(deals.map(d => d.Nation).filter(Boolean))];
+
+    return countryNames.map(country => {
+        const countryDeals = deals.filter(d => d.Nation === country);
+        const weekCounts = [];
+        for (let i = 0; i < 8; i++) {
+            const weekStart = now - (i + 1) * weekMs;
+            const weekEnd = now - i * weekMs;
+            weekCounts.unshift(countryDeals.filter(d => Number.isFinite(d.DateValue) && d.DateValue >= weekStart && d.DateValue < weekEnd).length);
+        }
+        const lastWeekCount = weekCounts[weekCounts.length - 1];
+        const baseline = weekCounts.slice(0, 7);
+        const mean = baseline.reduce((s, v) => s + v, 0) / (baseline.length || 1);
+        const variance = baseline.reduce((s, v) => s + (v - mean) ** 2, 0) / (baseline.length || 1);
+        const stdDev = Math.sqrt(variance);
+        const zScore = stdDev === 0 ? 0 : Number(((lastWeekCount - mean) / stdDev).toFixed(2));
+        const signal = zScore > 1 ? 'heating-up' : (zScore < -1 ? 'cooling-down' : 'stable');
+        const totalDeals = countryDeals.length;
+        return { country, zScore, signal, lastWeekCount, mean: parseFloat(mean.toFixed(1)), totalDeals };
+    })
+        .filter(r => r.totalDeals >= 3)
+        .sort((a, b) => b.zScore - a.zScore);
+}
+
+function buildHeatSignalsTable(signals) {
+    if (!signals.length) return '<p>Not enough data for heat signal analysis.</p>';
+    const rows = signals.map(s => {
+        const icon = s.signal === 'heating-up' ? '🔥' : (s.signal === 'cooling-down' ? '🧊' : '➖');
+        const cls = s.signal === 'heating-up' ? 'heat-up' : (s.signal === 'cooling-down' ? 'heat-down' : 'heat-stable');
+        const signalLabel = s.signal.replace('-', ' ');
+        return `<tr ${insightRowSortAttrs([s.country, signalLabel, s.zScore, s.lastWeekCount, s.mean])}>
+            <td>${escapeHtml(s.country)}</td>
+            <td><span class="heat-badge ${escapeHtml(cls)}">${icon} ${escapeHtml(signalLabel)}</span></td>
+            <td>${s.zScore > 0 ? '+' : ''}${s.zScore}</td>
+            <td>${s.lastWeekCount}</td>
+            <td>${s.mean}</td>
+        </tr>`;
+    }).join('');
+    return `<div class="table-scroll-wrap" data-insight-table="heat-signals"><table class="simple-table sticky-header-table"><thead><tr>
+        ${insightSortableTh('heat-signals', 'Country', 0)}
+        ${insightSortableTh('heat-signals', 'Signal', 1)}
+        ${insightSortableTh('heat-signals', 'Z-Score', 2, 'number')}
+        ${insightSortableTh('heat-signals', 'Last Week', 3, 'number')}
+        ${insightSortableTh('heat-signals', '8-Wk Avg', 4, 'number')}
+    </tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+// ─── First-Time Funded Startups ──────────────────────────────────────────────
+
+function findFirstTimeFundedStartups(deals, country) {
+    const refDate = getReferenceDate(deals);
+    const now = refDate.getTime();
+    const weekMs = 7 * 24 * 60 * 60 * 1000;
+    const thisWeekStart = now - weekMs;
+
+    const scope = country ? deals.filter(d => d.Nation === country) : deals;
+
+    const earliestByStartup = new Map();
+    scope.forEach(deal => {
+        const name = cleanString(deal.Startup_Name).toLowerCase();
+        if (!name) return;
+        if (!earliestByStartup.has(name) || (Number.isFinite(deal.DateValue) && deal.DateValue < earliestByStartup.get(name).DateValue)) {
+            earliestByStartup.set(name, deal);
+        }
+    });
+
+    return [...earliestByStartup.values()]
+        .filter(deal => Number.isFinite(deal.DateValue) && deal.DateValue >= thisWeekStart)
+        .sort((a, b) => b.DateValue - a.DateValue)
+        .slice(0, 20);
+}
+
+function buildFirstTimeFundedTable(startups) {
+    if (!startups.length) return '<p>No first-time funded startups found this week for the selected country.</p>';
+    const rows = startups.map(d => {
+        const name = cleanString(d.Startup_Name) || 'N/A';
+        const round = cleanString(d.RoundFilter) || 'N/A';
+        const amountStr = formatDealAmountForTable(d);
+        const dateStr = formatDate(d.Date_Captured);
+        const descShort = (cleanString(d.Description) || 'N/A').slice(0, 100);
+        const descSort = cleanString(d.Description) || 'N/A';
+        const ts = Number.isFinite(d.DateValue) ? d.DateValue : '';
+        const amountSort = Number.isFinite(d.AmountValue) ? d.AmountValue : '';
+        return `<tr ${insightRowSortAttrs([name, round, amountSort, ts, descSort])}>
+        <td><strong>${escapeHtml(name)}</strong></td>
+        <td>${escapeHtml(round)}</td>
+        <td>${escapeHtml(amountStr)}</td>
+        <td>${escapeHtml(dateStr)}</td>
+        <td class="description-cell">${escapeHtml(descShort)}${(cleanString(d.Description) || '').length > 100 ? '…' : ''}</td>
+    </tr>`;
+    }).join('');
+    return `
+        <div class="insight-table-wrap insight-table-wrap--wide" data-insight-table="first-time">
+            <table class="simple-table sticky-header-table">
+                <thead><tr>
+                    ${insightSortableTh('first-time', 'Startup', 0)}
+                    ${insightSortableTh('first-time', 'Round', 1)}
+                    ${insightSortableTh('first-time', 'Amount', 2, 'number')}
+                    ${insightSortableTh('first-time', 'Date', 3, 'number')}
+                    ${insightSortableTh('first-time', 'Description', 4)}
+                </tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>
+    `;
+}
+
+function renderInvestorStartupPage(deals) {
+    const container = document.getElementById('investor-intelligence-content');
+    if (!container) return;
+
+    const investors = summarizeInvestors(deals).slice(0, 20);
+    const countries = summarizeCountries(deals).slice(0, 10).map(row => row.name);
+    const startups = summarizeStartupFunding(deals).slice(0, 25);
+    const recentDeals = [...deals]
+        .filter(d => Number.isFinite(d.DateValue))
+        .sort((a, b) => b.DateValue - a.DateValue)
+        .slice(0, 12);
+
+    container.innerHTML = `
+        <div class="insight-grid">
+            <section class="insight-card span-5">
+                <h3>Top Investors</h3>
+                <div class="insight-table-wrap" data-insight-table="top-investors">
+                    <table class="simple-table sticky-header-table"><thead><tr>
+                        ${insightSortableTh('top-investors', 'Investor', 0)}
+                        ${insightSortableTh('top-investors', 'Deals', 1, 'number')}
+                    </tr></thead><tbody>
+                        ${investors.map(inv => `<tr ${insightRowSortAttrs([inv.name, inv.count])}><td>${escapeHtml(inv.name)}</td><td>${inv.count}</td></tr>`).join('') || '<tr><td colspan="2">No investor data</td></tr>'}
+                    </tbody></table>
+                </div>
+            </section>
+
+            <section class="insight-card span-7">
+                <h3>Investor-Country Heat Map</h3>
+                ${buildInvestorCountryHeatmap(investors.slice(0, 10), countries, deals)}
+            </section>
+
+            <section class="insight-card span-7">
+                <h3>Startup Momentum Matrix</h3>
+                <p class="insight-sub">Ranks startups by cumulative funding and repeat deal momentum.</p>
+                ${buildStartupMomentumMatrix(startups)}
+            </section>
+
+            <section class="insight-card span-5">
+                <h3>Recent Deal Feed</h3>
+                <div class="feed-list feed-scroll">
+                    ${recentDeals.map(deal => `<div class="feed-item"><strong>${escapeHtml(cleanString(deal.Startup_Name) || 'N/A')}</strong><br><span>${escapeHtml(deal.Nation || 'Unknown')} • ${escapeHtml(cleanString(deal.RoundFilter) || 'Round N/A')} • ${escapeHtml(formatDealAmountForTable(deal))}</span><br><small>${escapeHtml(formatDate(deal.Date_Captured))}</small></div>`).join('') || '<p>No recent deals available.</p>'}
+                </div>
+            </section>
+        </div>
+    `;
+
+    applyStoredInsightSorts(container);
+}
+
+function buildKpiTile(label, value) {
+    return `<article class="kpi-tile"><span class="kpi-label">${escapeHtml(label)}</span><span class="kpi-value">${escapeHtml(value)}</span></article>`;
+}
+
+function summarizeCountries(deals) {
+    const map = new Map();
+    deals.forEach(deal => {
+        const name = cleanString(deal.Nation) || UNKNOWN_LABEL;
+        if (!map.has(name)) map.set(name, { name, deals: 0, funding: 0 });
+        const row = map.get(name);
+        row.deals += 1;
+        if (Number.isFinite(deal.AmountValue)) row.funding += deal.AmountValue;
+    });
+    return [...map.values()].sort((a, b) => (b.deals - a.deals) || (b.funding - a.funding));
+}
+
+function summarizeInvestors(deals) {
+    const map = new Map();
+    deals.forEach(deal => {
+        splitInvestors(deal.Investors).forEach(name => {
+            const normalized = normalizeInvestorName(name);
+            if (!normalized) return;
+            const display = normalizeInvestorDisplayName(normalized);
+            if (!map.has(normalized)) {
+                map.set(normalized, { name: display, count: 0 });
+            }
+            map.get(normalized).count += 1;
+        });
+    });
+    return [...map.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+}
+
+function splitInvestors(value) {
+    return cleanString(value)
+        .split(/,|;|\|| and /gi)
+        .map(v => cleanString(v))
+        .filter(v => v && !['n/a', 'na', 'unknown'].includes(v.toLowerCase()));
+}
+
+function summarizeDailyDeals(deals, windowDays) {
+    const refDate = getReferenceDate(deals);
+    const rows = [];
+    for (let i = windowDays - 1; i >= 0; i -= 1) {
+        const day = new Date(refDate.getTime() - (i * 24 * 60 * 60 * 1000));
+        const start = startOfUtcDay(day).getTime();
+        const end = endOfUtcDay(day).getTime();
+        rows.push({
+            label: `${day.getUTCMonth() + 1}/${day.getUTCDate()}`,
+            count: deals.filter(d => Number.isFinite(d.DateValue) && d.DateValue >= start && d.DateValue <= end).length
+        });
+    }
+    return rows;
+}
+
+function buildDailyTrendBars(rows) {
+    const max = Math.max(...rows.map(r => r.count), 1);
+    return rows.map(row => {
+        const height = Math.max(6, (row.count / max) * 100);
+        return `<div class="trend-bar" style="height:${height}%;" title="${escapeHtml(row.label)}: ${row.count} deals"><span>${escapeHtml(row.label)}</span></div>`;
+    }).join('');
+}
+
+function normalizeInvestorName(value) {
+    const normalized = cleanString(value)
+        .toLowerCase()
+        .replace(/[^\w\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!normalized || ['n a', 'na', 'unknown', 'not disclosed', 'undisclosed', '1 more', 'existing investors', 'angel investors'].includes(normalized)) {
+        return 'undisclosed';
+    }
+    return normalized;
+}
+
+function normalizeInvestorDisplayName(value) {
+    if (value === 'undisclosed') {
+        return 'Undisclosed';
+    }
+    if (value === 'nvidia') {
+        return 'NVIDIA';
+    }
+    return value.split(' ').map(token => token ? token[0].toUpperCase() + token.slice(1) : token).join(' ');
+}
+
+function summarizeMonthlyFunding(deals, months) {
+    const refDate = getReferenceDate(deals);
+    const output = [];
+    for (let i = months - 1; i >= 0; i -= 1) {
+        const dt = new Date(Date.UTC(refDate.getUTCFullYear(), refDate.getUTCMonth() - i, 1));
+        const y = dt.getUTCFullYear();
+        const m = dt.getUTCMonth();
+        const amount = deals
+            .filter(d => Number.isFinite(d.DateValue) && new Date(d.DateValue).getUTCFullYear() === y && new Date(d.DateValue).getUTCMonth() === m)
+            .reduce((sum, d) => sum + (Number.isFinite(d.AmountValue) ? d.AmountValue : 0), 0);
+        output.push({ label: `${m + 1}/${String(y).slice(-2)}`, amount });
+    }
+    return output;
+}
+
+function buildMonthlyFundingBars(rows) {
+    const max = Math.max(...rows.map(r => r.amount), 1);
+    return rows.map(row => {
+        const height = Math.max(8, (row.amount / max) * 100);
+        return `<div class="trend-bar" style="height:${height}%;" title="${escapeHtml(row.label)}: ${formatCurrencyCompact(row.amount)}"><span>${escapeHtml(row.label)}</span></div>`;
+    }).join('');
+}
+
+function summarizeRoundMix(deals) {
+    const map = new Map();
+    deals.forEach(d => {
+        const k = cleanString(d.RoundFilter) || UNKNOWN_LABEL;
+        map.set(k, (map.get(k) || 0) + 1);
+    });
+    const total = deals.length || 1;
+    return [...map.entries()]
+        .map(([name, count]) => ({ name, count, pct: Math.max(6, Math.round((count / total) * 100)) }))
+        .sort((a, b) => b.count - a.count);
+}
+
+function summarizeSectors(deals) {
+    const keywords = {
+        'GenAI': /genai|llm|foundation model|chatbot|language model/i,
+        'Infrastructure': /infrastructure|compute|cloud|gpu|chip|semiconductor/i,
+        'Healthcare AI': /health|biotech|clinical|medtech/i,
+        'Enterprise AI': /enterprise|workflow|saas|automation/i,
+        'Robotics': /robot|autonomous|drone/i,
+        'Fintech AI': /fintech|bank|payments|insurance/i,
+        'Security AI': /security|cyber/i,
+        'Climate AI': /climate|energy|sustainab/i,
+        'Other AI': /./
+    };
+
+    const map = new Map(Object.keys(keywords).map(k => [k, 0]));
+    deals.forEach(deal => {
+        const text = `${cleanString(deal.Description)} ${cleanString(deal.Startup_Name)}`;
+        const hit = Object.entries(keywords).find(([name, pattern]) => name !== 'Other AI' && pattern.test(text));
+        map.set(hit ? hit[0] : 'Other AI', (map.get(hit ? hit[0] : 'Other AI') || 0) + 1);
+    });
+
+    return [...map.entries()]
+        .map(([name, count]) => ({ name, count }))
+        .filter(item => item.count > 0)
+        .sort((a, b) => b.count - a.count);
+}
+
+function summarizeStartupFunding(deals) {
+    const map = new Map();
+    deals.forEach(deal => {
+        const key = cleanString(deal.Startup_Name);
+        if (!key) return;
+        if (!map.has(key)) map.set(key, { name: key, funding: 0, latest: 0, deals: 0 });
+        const row = map.get(key);
+        row.deals += 1;
+        if (Number.isFinite(deal.AmountValue)) row.funding += deal.AmountValue;
+        if (Number.isFinite(deal.DateValue)) row.latest = Math.max(row.latest, deal.DateValue);
+    });
+    return [...map.values()].sort((a, b) => b.funding - a.funding);
+}
+
+function buildInvestorCountryHeatmap(investors, countries, deals) {
+    const matrix = investors.map(inv => {
+        const lower = inv.name.toLowerCase();
+        return countries.map(country => deals.filter(deal => deal.Nation === country && cleanString(deal.Investors).toLowerCase().includes(lower)).length);
+    });
+    const max = Math.max(1, ...matrix.flat());
+
+    const headerCells = [
+        insightSortableTh('inv-country-heat', 'Investor', 0),
+        ...countries.map((c, ci) => insightSortableTh('inv-country-heat', c, ci + 1, 'number'))
+    ].join('');
+    const header = `<tr>${headerCells}</tr>`;
+    const rows = investors.map((inv, idx) => {
+        const cols = matrix[idx].map(value => {
+            const alpha = value ? Math.min(0.85, value / max) : 0.08;
+            return `<td><div class="heatmap-cell" style="background: rgba(37,99,235,${alpha});">${value}</div></td>`;
+        }).join('');
+        const sortVals = [inv.name, ...matrix[idx]];
+        return `<tr ${insightRowSortAttrs(sortVals)}><td>${escapeHtml(inv.name)}</td>${cols}</tr>`;
+    }).join('');
+
+    return `
+        <div class="insight-table-wrap insight-table-wrap--wide" data-insight-table="inv-country-heat">
+            <table class="simple-table sticky-header-table investor-heatmap-table">
+                <thead>${header}</thead>
+                <tbody>${rows || '<tr><td colspan="2">No heatmap data</td></tr>'}</tbody>
+            </table>
+        </div>
+    `;
+}
+
+function buildStartupMomentumMatrix(startups) {
+    if (!startups.length) {
+        return '<p>No startup momentum data available.</p>';
+    }
+    const rows = startups.map((startup, index) => {
+        const latestDate = Number.isFinite(startup.latest) ? formatDate(startup.latest) : 'N/A';
+        const rank = index + 1;
+        return `<tr ${insightRowSortAttrs([rank, startup.name, startup.deals, startup.funding, startup.latest || ''])}>
+            <td>${rank}</td>
+            <td>${escapeHtml(startup.name)}</td>
+            <td>${startup.deals.toLocaleString()}</td>
+            <td>${formatCurrencyCompact(startup.funding)}</td>
+            <td>${escapeHtml(latestDate)}</td>
+        </tr>`;
+    }).join('');
+    return `
+        <div class="bubble-table-wrap bubble-table-wrap--momentum" data-insight-table="startup-momentum">
+            <table class="simple-table sticky-header-table startup-momentum-table">
+                <thead><tr>
+                    ${insightSortableTh('startup-momentum', '#', 0, 'number')}
+                    ${insightSortableTh('startup-momentum', 'Startup', 1)}
+                    ${insightSortableTh('startup-momentum', 'Deal Count', 2, 'number')}
+                    ${insightSortableTh('startup-momentum', 'Total Funding', 3, 'number')}
+                    ${insightSortableTh('startup-momentum', 'Last Seen', 4, 'number')}
+                </tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>
+        <p class="chart-note">This view prioritizes interpretability: you can immediately compare startup funding scale, repeat funding cadence, and recency.</p>
+    `;
+}
+
+const COUNTRY_COORDS = {
+    'USA': [37.09, -95.71],
+    'United States': [37.09, -95.71],
+    'Canada': [56.13, -106.35],
+    'Mexico': [23.63, -102.55],
+    'Britain': [55.38, -3.44],
+    'United Kingdom': [55.38, -3.44],
+    'Germany': [51.17, 10.45],
+    'France': [46.23, 2.21],
+    'Netherlands': [52.13, 5.29],
+    'Sweden': [60.13, 18.64],
+    'Switzerland': [46.82, 8.23],
+    'Spain': [40.46, -3.75],
+    'Italy': [41.87, 12.57],
+    'Denmark': [56.26, 9.50],
+    'Finland': [61.92, 25.75],
+    'Norway': [60.47, 8.47],
+    'Luxembourg': [49.82, 6.13],
+    'Portugal': [39.40, -8.22],
+    'Belgium': [50.50, 4.47],
+    'Austria': [47.52, 14.55],
+    'Poland': [51.92, 19.15],
+    'Israel': [31.05, 34.85],
+    'UAE': [23.42, 53.85],
+    'Dubai': [25.20, 55.27],
+    'Saudi Arabia': [23.89, 45.08],
+    'Turkey': [38.96, 35.24],
+    'MENA': [25.00, 45.00],
+    'India': [20.59, 78.96],
+    'Pakistan': [30.38, 69.35],
+    'Bangladesh': [23.68, 90.36],
+    'China': [35.86, 104.20],
+    'Japan': [36.20, 138.25],
+    'South Korea': [35.91, 127.77],
+    'Taiwan': [23.70, 121.00],
+    'Hong Kong': [22.32, 114.17],
+    'Singapore': [1.35, 103.82],
+    'Indonesia': [-0.79, 113.92],
+    'Malaysia': [4.21, 101.98],
+    'Vietnam': [14.06, 108.28],
+    'Thailand': [15.87, 100.99],
+    'Philippines': [12.88, 121.77],
+    'Australia': [-25.27, 133.78],
+    'New Zealand': [-40.90, 174.89],
+    'Brazil': [-14.24, -51.93],
+    'Argentina': [-38.42, -63.62],
+    'Chile': [-35.68, -71.54],
+    'Colombia': [4.57, -74.30],
+    'Nigeria': [9.08, 8.68],
+    'Kenya': [-0.02, 37.91],
+    'South Africa': [-30.56, 22.94],
+    'Egypt': [26.82, 30.80]
+};
+
+let leafletMapInstance = null;
+
+function ensureLeafletLoaded(done) {
+    if (typeof L !== 'undefined') {
+        done();
+        return;
+    }
+    const existing = document.querySelector('script[data-leaflet-fallback]');
+    if (existing) {
+        let attempts = 0;
+        const wait = () => {
+            if (typeof L !== 'undefined' || attempts > 200) {
+                done();
+                return;
+            }
+            attempts += 1;
+            setTimeout(wait, 50);
+        };
+        wait();
+        return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js';
+    script.async = true;
+    script.crossOrigin = 'anonymous';
+    script.setAttribute('data-leaflet-fallback', '1');
+    script.onload = () => done();
+    script.onerror = () => done();
+    document.body.appendChild(script);
+}
+
+function initLeafletWorldMap(allCountries) {
+    const mapEl = document.getElementById('world-map-leaflet');
+    if (!mapEl) return;
+
+    const buildMap = () => {
+        if (typeof L === 'undefined') {
+            mapEl.innerHTML = '<p style="text-align:center;padding:40px;color:#888;">Map unavailable: the mapping library failed to load. Try a hard refresh; if it persists, a browser extension may be blocking the map script.</p>';
+            return;
+        }
+        mountLeafletMap(mapEl, allCountries);
+    };
+
+    if (typeof L !== 'undefined') {
+        buildMap();
+    } else {
+        ensureLeafletLoaded(buildMap);
+    }
+}
+
+function mountLeafletMap(mapEl, allCountries) {
+
+    if (leafletMapInstance) {
+        leafletMapInstance.remove();
+        leafletMapInstance = null;
+    }
+
+    const maxDeals = allCountries.length ? allCountries[0].deals : 1;
+
+    const map = L.map('world-map-leaflet', {
+        center: [20, 10],
+        zoom: 2,
+        minZoom: 1,
+        maxZoom: 6,
+        zoomControl: true,
+        scrollWheelZoom: false
+    });
+    leafletMapInstance = map;
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        maxZoom: 19
+    }).addTo(map);
+
+    allCountries.forEach(country => {
+        const coords = COUNTRY_COORDS[country.name];
+        if (!coords) return;
+
+        const radius = 6 + Math.round((country.deals / maxDeals) * 18);
+        const circle = L.circleMarker(coords, {
+            radius,
+            color: '#4c51bf',
+            fillColor: '#667eea',
+            fillOpacity: 0.8,
+            weight: 2
+        }).addTo(map);
+
+        const detailHtml =
+            `<strong>${escapeHtml(country.name)}</strong><br>` +
+            `Deals: ${country.deals.toLocaleString()}<br>` +
+            `Funding: ${formatCurrencyCompact(country.funding)}`;
+
+        circle.bindPopup(detailHtml);
+        circle.bindTooltip(detailHtml, {
+            sticky: true,
+            direction: 'auto',
+            opacity: 0.95,
+            className: 'map-marker-tooltip'
+        });
+    });
+}
