@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Venture Capital Intelligence Dashboard</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
 </head>
 <body class="social-style-minimal">
     <div class="container">
@@ -36,183 +37,219 @@
         </header>
         <p id="last-updated" style="display:none;">Loading data...</p>
 
-        <div class="controls">
-            <div class="filters">
-                <div class="filter-group">
-                    <label>Nations/Countries:</label>
-                    <div class="multi-select-wrapper">
-                        <button id="nation-select-btn" class="multi-select-button">
-                            Select Nations <span class="arrow">▼</span>
-                        </button>
-                        <div id="nation-dropdown" class="multi-select-dropdown hidden">
-                            <div class="dropdown-header">
-                                <button id="select-all-nations" class="btn-small">Select All</button>
-                                <button id="clear-all-nations" class="btn-small">Clear All</button>
+        <div class="page-nav" role="tablist" aria-label="Dashboard Pages">
+            <button class="page-tab active" data-page-target="page-1">
+                <span class="page-tab-title">Page 1 · Live Deal Monitor</span>
+                <span class="page-tab-subtitle">Live feed, benchmark cards, and export</span>
+            </button>
+            <button class="page-tab" data-page-target="page-2">
+                <span class="page-tab-title">Page 2 · Global Overview</span>
+                <span class="page-tab-subtitle">Macro signals, leaderboard, map, and alerts</span>
+            </button>
+            <button class="page-tab" data-page-target="page-3">
+                <span class="page-tab-title">Page 3 · Country Intelligence</span>
+                <span class="page-tab-subtitle">Single-country velocity, sectors, and startups</span>
+            </button>
+            <button class="page-tab" data-page-target="page-4">
+                <span class="page-tab-title">Page 4 · Investor & Startup Intelligence</span>
+                <span class="page-tab-subtitle">Investor activity, startup momentum, and deal feed</span>
+            </button>
+        </div>
+
+        <p class="ai-data-note">AI-assisted market intelligence synthesized from public disclosures and continuously quality-checked for consistency.</p>
+
+        <section id="page-1" class="dashboard-page active">
+            <div class="controls">
+                <div class="filters">
+                    <div class="filter-group">
+                        <label>Nations/Countries:</label>
+                        <div class="multi-select-wrapper">
+                            <button id="nation-select-btn" class="multi-select-button">
+                                Select Nations <span class="arrow">▼</span>
+                            </button>
+                            <div id="nation-dropdown" class="multi-select-dropdown hidden">
+                                <div class="dropdown-header">
+                                    <button id="select-all-nations" class="btn-small">Select All</button>
+                                    <button id="clear-all-nations" class="btn-small">Clear All</button>
+                                </div>
+                                <div id="nation-checkboxes" class="checkbox-list"></div>
                             </div>
-                            <div id="nation-checkboxes" class="checkbox-list"></div>
                         </div>
                     </div>
-                </div>
 
-                <div class="filter-group">
-                    <label>Round:</label>
-                    <div class="multi-select-wrapper">
-                        <button id="round-select-btn" class="multi-select-button">
-                            Select Rounds <span class="arrow">▼</span>
-                        </button>
-                        <div id="round-dropdown" class="multi-select-dropdown hidden">
-                            <div class="dropdown-header">
-                                <button id="select-all-rounds" class="btn-small">Select All</button>
-                                <button id="clear-all-rounds" class="btn-small">Clear All</button>
+                    <div class="filter-group">
+                        <label>Round:</label>
+                        <div class="multi-select-wrapper">
+                            <button id="round-select-btn" class="multi-select-button">
+                                Select Rounds <span class="arrow">▼</span>
+                            </button>
+                            <div id="round-dropdown" class="multi-select-dropdown hidden">
+                                <div class="dropdown-header">
+                                    <button id="select-all-rounds" class="btn-small">Select All</button>
+                                    <button id="clear-all-rounds" class="btn-small">Clear All</button>
+                                </div>
+                                <div id="round-checkboxes" class="checkbox-list"></div>
                             </div>
-                            <div id="round-checkboxes" class="checkbox-list"></div>
                         </div>
                     </div>
-                </div>
 
-                <div class="filter-group">
-                    <label>Tier:</label>
-                    <div class="multi-select-wrapper">
-                        <button id="tier-select-btn" class="multi-select-button">
-                            Select Tiers <span class="arrow">▼</span>
-                        </button>
-                        <div id="tier-dropdown" class="multi-select-dropdown hidden">
-                            <div class="dropdown-header">
-                                <button id="select-all-tiers" class="btn-small">Select All</button>
-                                <button id="clear-all-tiers" class="btn-small">Clear All</button>
+                    <div class="filter-group">
+                        <label>Tier:</label>
+                        <div class="multi-select-wrapper">
+                            <button id="tier-select-btn" class="multi-select-button">
+                                Select Tiers <span class="arrow">▼</span>
+                            </button>
+                            <div id="tier-dropdown" class="multi-select-dropdown hidden">
+                                <div class="dropdown-header">
+                                    <button id="select-all-tiers" class="btn-small">Select All</button>
+                                    <button id="clear-all-tiers" class="btn-small">Clear All</button>
+                                </div>
+                                <div id="tier-checkboxes" class="checkbox-list"></div>
                             </div>
-                            <div id="tier-checkboxes" class="checkbox-list"></div>
                         </div>
                     </div>
-                </div>
 
-                <div class="filter-group">
-                    <label>LinkedIn Profile:</label>
-                    <div class="multi-select-wrapper">
-                        <button id="linkedin-select-btn" class="multi-select-button">
-                            Select LinkedIn Status <span class="arrow">▼</span>
-                        </button>
-                        <div id="linkedin-dropdown" class="multi-select-dropdown hidden">
-                            <div class="dropdown-header">
-                                <button id="select-all-linkedin" class="btn-small">Select All</button>
-                                <button id="clear-all-linkedin" class="btn-small">Clear All</button>
+                    <div class="filter-group">
+                        <label>LinkedIn Profile:</label>
+                        <div class="multi-select-wrapper">
+                            <button id="linkedin-select-btn" class="multi-select-button">
+                                Select LinkedIn Status <span class="arrow">▼</span>
+                            </button>
+                            <div id="linkedin-dropdown" class="multi-select-dropdown hidden">
+                                <div class="dropdown-header">
+                                    <button id="select-all-linkedin" class="btn-small">Select All</button>
+                                    <button id="clear-all-linkedin" class="btn-small">Clear All</button>
+                                </div>
+                                <div id="linkedin-checkboxes" class="checkbox-list"></div>
                             </div>
-                            <div id="linkedin-checkboxes" class="checkbox-list"></div>
                         </div>
                     </div>
-                </div>
 
-                <div class="filter-group">
-                    <label>Hiring:</label>
-                    <div class="multi-select-wrapper">
-                        <button id="hiring-select-btn" class="multi-select-button">
-                            Select Hiring Status <span class="arrow">▼</span>
-                        </button>
-                        <div id="hiring-dropdown" class="multi-select-dropdown hidden">
-                            <div class="dropdown-header">
-                                <button id="select-all-hiring" class="btn-small">Select All</button>
-                                <button id="clear-all-hiring" class="btn-small">Clear All</button>
+                    <div class="filter-group">
+                        <label>Hiring:</label>
+                        <div class="multi-select-wrapper">
+                            <button id="hiring-select-btn" class="multi-select-button">
+                                Select Hiring Status <span class="arrow">▼</span>
+                            </button>
+                            <div id="hiring-dropdown" class="multi-select-dropdown hidden">
+                                <div class="dropdown-header">
+                                    <button id="select-all-hiring" class="btn-small">Select All</button>
+                                    <button id="clear-all-hiring" class="btn-small">Clear All</button>
+                                </div>
+                                <div id="hiring-checkboxes" class="checkbox-list"></div>
                             </div>
-                            <div id="hiring-checkboxes" class="checkbox-list"></div>
                         </div>
                     </div>
-                </div>
 
-                <div class="filter-group">
-                    <label>Careers Link:</label>
-                    <div class="multi-select-wrapper">
-                        <button id="careers-select-btn" class="multi-select-button">
-                            Select Careers Status <span class="arrow">▼</span>
-                        </button>
-                        <div id="careers-dropdown" class="multi-select-dropdown hidden">
-                            <div class="dropdown-header">
-                                <button id="select-all-careers" class="btn-small">Select All</button>
-                                <button id="clear-all-careers" class="btn-small">Clear All</button>
+                    <div class="filter-group">
+                        <label>Careers Link:</label>
+                        <div class="multi-select-wrapper">
+                            <button id="careers-select-btn" class="multi-select-button">
+                                Select Careers Status <span class="arrow">▼</span>
+                            </button>
+                            <div id="careers-dropdown" class="multi-select-dropdown hidden">
+                                <div class="dropdown-header">
+                                    <button id="select-all-careers" class="btn-small">Select All</button>
+                                    <button id="clear-all-careers" class="btn-small">Clear All</button>
+                                </div>
+                                <div id="careers-checkboxes" class="checkbox-list"></div>
                             </div>
-                            <div id="careers-checkboxes" class="checkbox-list"></div>
                         </div>
                     </div>
-                </div>
 
-                <div class="filter-group">
-                    <label>Amount Range (USD):</label>
-                    <div class="amount-range">
-                        <div class="amount-range-values">
-                            <label class="amount-input-chip" for="amount-min-input">
-                                <span>Min</span>
-                                <input
-                                    type="text"
-                                    id="amount-min-input"
-                                    inputmode="decimal"
-                                    placeholder="$0"
-                                    aria-label="Minimum amount"
-                                >
-                            </label>
-                            <label class="amount-input-chip amount-input-chip-right" for="amount-max-input">
-                                <span>Max</span>
-                                <input
-                                    type="text"
-                                    id="amount-max-input"
-                                    inputmode="decimal"
-                                    placeholder="$0"
-                                    aria-label="Maximum amount"
-                                >
-                            </label>
-                        </div>
-                        <div class="range-slider">
-                            <div class="range-slider-track"></div>
-                            <div id="amount-range-fill" class="range-slider-fill"></div>
-                            <input type="range" id="amount-min" class="range-input range-input-min" aria-label="Minimum amount slider">
-                            <input type="range" id="amount-max" class="range-input range-input-max" aria-label="Maximum amount slider">
-                        </div>
-                        <p id="amount-range-summary" class="filter-help">Any amount</p>
+                    <div class="filter-group page-specific-filter hidden" id="country-intel-filter-group">
+                        <label>Country (Page 3):</label>
+                        <select id="country-intel-select-global" class="date-input" aria-label="Country intelligence selector"></select>
                     </div>
-                </div>
 
-                <div class="filter-group">
-                    <label>Date Range:</label>
-                    <div class="date-range">
-                        <input type="date" id="date-from" class="date-input">
-                        <span>to</span>
-                        <input type="date" id="date-to" class="date-input">
+                    <div class="filter-group">
+                        <label>Amount Range (USD):</label>
+                        <div class="amount-range">
+                            <div class="amount-range-values">
+                                <label class="amount-input-chip" for="amount-min-input">
+                                    <span>Min</span>
+                                    <input type="text" id="amount-min-input" inputmode="decimal" placeholder="$0" aria-label="Minimum amount">
+                                </label>
+                                <label class="amount-input-chip amount-input-chip-right" for="amount-max-input">
+                                    <span>Max</span>
+                                    <input type="text" id="amount-max-input" inputmode="decimal" placeholder="$0" aria-label="Maximum amount">
+                                </label>
+                            </div>
+                            <div class="range-slider">
+                                <div class="range-slider-track"></div>
+                                <div id="amount-range-fill" class="range-slider-fill"></div>
+                                <input type="range" id="amount-min" class="range-input range-input-min" aria-label="Minimum amount slider">
+                                <input type="range" id="amount-max" class="range-input range-input-max" aria-label="Maximum amount slider">
+                            </div>
+                            <p id="amount-range-summary" class="filter-help">Any amount</p>
+                        </div>
                     </div>
-                </div>
 
-                <div class="filter-group full-width">
-                    <label>Search:</label>
-                    <input type="text" id="search" placeholder="Search startups, founders, investors, countries, links...">
-                </div>
+                    <div class="filter-group">
+                        <label>Date Range:</label>
+                        <div class="date-range">
+                            <input type="date" id="date-from" class="date-input">
+                            <span>to</span>
+                            <input type="date" id="date-to" class="date-input">
+                        </div>
+                    </div>
 
-                <div class="filter-group full-width actions-group">
-                    <div class="filter-actions">
-                        <button id="reset-filters" class="btn-reset">Reset All Filters</button>
+                    <div class="filter-group full-width">
+                        <label>Search:</label>
+                        <input type="text" id="search" placeholder="Search startups, founders, investors, countries, links...">
+                    </div>
+
+                    <div class="filter-group full-width actions-group">
+                        <div class="filter-actions">
+                            <button id="reset-filters" class="btn-reset">Reset All Filters</button>
+                            <div class="preset-actions">
+                                <span class="preset-label">Saved Views:</span>
+                                <button type="button" class="btn-secondary btn-preset" data-preset="global-vc">Global VC Lens</button>
+                                <button type="button" class="btn-secondary btn-preset" data-preset="early-stage">Early Stage</button>
+                                <button type="button" class="btn-secondary btn-preset" data-preset="hiring-focused">Hiring Focused</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <div id="dashboard-content">
-            <div id="stats-cards"></div>
-            <div id="deals-container">
-                <div class="deals-header">
-                    <div>
-                        <h2>Last 7 Days (<span id="deal-count">0</span>)</h2>
-                        <p id="deals-subtitle" class="deals-subtitle">Showing deals from the last 7 days. Cards above reflect all filtered deals.</p>
+            <div id="dashboard-content">
+                <div id="stats-cards"></div>
+                <div id="deals-container">
+                    <div class="deals-header">
+                        <div>
+                            <h2>Last 7 Days (<span id="deal-count">0</span>)</h2>
+                            <p id="deals-subtitle" class="deals-subtitle">Showing deals from the last 7 days. Cards above reflect all filtered deals.</p>
+                        </div>
+                        <button id="export-csv" class="btn-csv-download">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            Download CSV
+                        </button>
                     </div>
-                    <button id="export-csv" class="btn-csv-download">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                        Download CSV
-                    </button>
+                    <div id="deals-table"></div>
                 </div>
-                <div id="deals-table"></div>
             </div>
-        </div>
+        </section>
+
+        <section id="page-2" class="dashboard-page">
+            <div id="global-overview-content" class="insight-page-content"></div>
+        </section>
+
+        <section id="page-3" class="dashboard-page">
+            <p id="country-context-subtitle" class="country-context-subtitle"></p>
+            <div id="country-intelligence-content" class="insight-page-content"></div>
+        </section>
+
+        <section id="page-4" class="dashboard-page">
+            <div id="investor-intelligence-content" class="insight-page-content"></div>
+        </section>
 
         <footer>
             <p>Data synced 3x daily (02:30, 10:30, 18:30 CT) | Last sync: <span id="sync-time">loading...</span></p>
         </footer>
     </div>
-    
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <script src="dashboard.js"></script>
 </body>
 </html>
