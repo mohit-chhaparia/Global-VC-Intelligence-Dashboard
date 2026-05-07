@@ -21,15 +21,15 @@ FX_API_URL = "https://open.er-api.com/v6/latest/USD"
 CHICAGO_TZ = ZoneInfo("America/Chicago")
 USD_MARKER_PATTERN = re.compile(r"\b(?:usd|us\$)\b|\$", re.IGNORECASE)
 USD_PREFIX_PATTERN = re.compile(
-    r"(?:US\$|USD|\$)\s*\d[\d,]*(?:\.\d+)?(?:\s*(?:trillion|tn|billion|bn|million|mn|thousand|k|[tmb]))?",
+    r"(?:US\$|USD|\$)\s*\d[\d,]*(?:\.\d+)?(?:\s*[tmbk])?(?:\s*(?:trillion|tn|billion|bn|million|mn|thousand))?",
     re.IGNORECASE,
 )
 USD_SUFFIX_PATTERN = re.compile(
-    r"\d[\d,]*(?:\.\d+)?(?:\s*(?:trillion|tn|billion|bn|million|mn|thousand|k|[tmb]))?\s*(?:US\$|USD)",
+    r"\d[\d,]*(?:\.\d+)?(?:\s*[tmbk])?(?:\s*(?:trillion|tn|billion|bn|million|mn|thousand))?\s*(?:US\$|USD)",
     re.IGNORECASE,
 )
 GENERIC_AMOUNT_PATTERN = re.compile(
-    r"\d[\d,]*(?:\.\d+)?(?:\s*(?:trillion|tn|billion|bn|million|mn|thousand|k|[tmb]))?",
+    r"\d[\d,]*(?:\.\d+)?(?:\s*[tmbk])?(?:\s*(?:trillion|tn|billion|bn|million|mn|thousand))?",
     re.IGNORECASE,
 )
 NATION_CURRENCY_MAP = {
@@ -219,14 +219,31 @@ def parse_amount_candidate(value: str) -> float | None:
 
     numeric_value = float(number_match.group(1))
 
-    if re.search(r"\btrillion\b|\btn\b|(?<![a-z])t(?![a-z])", normalized):
+    if re.search(r"\btrillion\b|\btn\b", normalized):
         numeric_value *= 1e12
-    elif re.search(r"\bbillion\b|\bbn\b|(?<![a-z])b(?![a-z])", normalized):
+    elif re.search(r"\bbillion\b|\bbn\b", normalized):
         numeric_value *= 1e9
-    elif re.search(r"\bmillion\b|\bmn\b|(?<![a-z])m(?![a-z])", normalized):
+    elif re.search(r"\bmillion\b|\bmn\b", normalized):
         numeric_value *= 1e6
     elif re.search(r"\bthousand\b|(?<![a-z])k(?![a-z])", normalized):
         numeric_value *= 1e3
+    elif re.search(r"(?<=\d)\s+m(?![a-z])", normalized, re.I):
+        numeric_value *= 1e6
+    elif re.search(r"(?<=\d)\s+b(?![a-z])", normalized, re.I):
+        numeric_value *= 1e9
+    elif re.search(r"(?<=\d)\s+t(?![a-z])", normalized, re.I):
+        numeric_value *= 1e12
+    elif re.search(r"(?<=\d)t(?![a-z])", normalized, re.I):
+        numeric_value *= 1e12
+    elif re.search(r"(?<=\d)b(?![a-z])", normalized, re.I):
+        numeric_value *= 1e9
+    elif re.search(r"(?<=\d)m(?![a-z])", normalized, re.I):
+        numeric_value *= 1e6
+
+    if re.search(r"\bcrore\b|\bcr\b", normalized):
+        numeric_value *= 1e7
+    if re.search(r"\blakh\b|\blac\b", normalized):
+        numeric_value *= 1e5
 
     return numeric_value
 
@@ -237,6 +254,15 @@ def detect_amount_currency(value: Any) -> str:
 
     if not cleaned:
         return ""
+
+    if re.search(r"[\u5104]\s*[\u5186]", raw):
+        return "JPY"
+
+    if re.search(r"\b(CRORE|CR)\b", raw, re.I) or "₹" in raw or re.search(r"\bINR\b", cleaned):
+        return "INR"
+
+    if re.search(r"\u4ebf\s*\u5143", raw) or re.search(r"\u4ebf\s*\u4eba\u6c11\u5e01", raw) or re.search(r"\bRMB\b", cleaned, re.I):
+        return "CNY"
 
     if re.search(r"(?:US\$|USD|\$)", cleaned):
         return "USD"
@@ -277,6 +303,224 @@ def convert_amount_to_usd(value: float, currency: str, currency_to_usd_rate: dic
     return value * rate
 
 
+def detect_non_financial_amount_text(raw: str) -> bool:
+    s = clean_string(raw).lower()
+    if not s:
+        return False
+    if re.search(r"\(in-kind support\)|\bin-kind support\b|\bin kind support\b", s):
+        return True
+    if re.match(
+        r"^\s*\d+\s+[^$€£¥₹]{0,80}\b(gpu|gpus)\b",
+        clean_string(raw),
+        re.I,
+    ) and not re.search(r"\$\s*[\d,]+(?:\.\d+)?(?:[-–]|\s+)(million|billion)", raw, re.I):
+        return True
+    return False
+
+
+def parse_parenthetical_usd_approximation(raw: str) -> dict[str, Any] | None:
+    m = re.search(
+        r"\(\s*approximately\s*\$?\s*([\d.,]+)\s*[–-]\s*([\d.,]+)\s*million\s*usd?\s*\)",
+        clean_string(raw),
+        re.I,
+    )
+    if not m:
+        return None
+    lo = float(str(m.group(1)).replace(",", ""))
+    hi = float(str(m.group(2)).replace(",", ""))
+    mid_usd = ((lo + hi) / 2) * 1e6
+    return {
+        "usd_value": mid_usd,
+        "currency": "USD",
+        "original_value": mid_usd,
+        "is_converted": False,
+        "amount_kind": "monetary",
+    }
+
+
+def parse_hyphenated_usd_magnitude(raw: str) -> dict[str, Any] | None:
+    m = re.search(
+        r"\$\s*([\d,]+(?:\.\d+)?)(?:[-–]|\s+)(million|billion|trillion|thousand)\b",
+        clean_string(raw),
+        re.I,
+    )
+    if not m:
+        return None
+    num = float(str(m.group(1)).replace(",", ""))
+    unit = m.group(2).lower()
+    if unit == "trillion":
+        num *= 1e12
+    elif unit == "billion":
+        num *= 1e9
+    elif unit == "million":
+        num *= 1e6
+    elif unit == "thousand":
+        num *= 1e3
+    return {
+        "usd_value": num,
+        "currency": "USD",
+        "original_value": num,
+        "is_converted": False,
+        "amount_kind": "monetary",
+    }
+
+
+def parse_chinese_usd_yi_string(raw: str) -> dict[str, Any] | None:
+    s = clean_string(raw)
+    for pattern in (
+        r"(?:超|超过)\s*(\d+(?:\.\d+)?)\s*亿\s*美元",
+        r"(\d+(?:\.\d+)?)\s*亿\s*美元",
+    ):
+        m = re.search(pattern, s)
+        if not m:
+            continue
+        num = float(m.group(1))
+        usd = num * 1e8
+        return {
+            "usd_value": usd,
+            "currency": "USD",
+            "original_value": usd,
+            "is_converted": False,
+            "amount_kind": "monetary",
+        }
+    return None
+
+
+def parse_chinese_cny_yi_string(raw: str, currency_to_usd_rate: dict[str, float]) -> dict[str, Any] | None:
+    s = clean_string(raw)
+    for pattern in (
+        r"(?:超|超过)\s*(\d+(?:\.\d+)?)\s*亿\s*元",
+        r"(\d+(?:\.\d+)?)\s*亿\s*元",
+        r"(?:超|超过)\s*(\d+(?:\.\d+)?)\s*亿\s*人民币",
+        r"(\d+(?:\.\d+)?)\s*亿\s*人民币",
+    ):
+        m = re.search(pattern, s)
+        if not m:
+            continue
+        num = float(m.group(1))
+        cny = num * 1e8
+        usd_value = convert_amount_to_usd(cny, "CNY", currency_to_usd_rate)
+        if usd_value is None:
+            return None
+        return {
+            "usd_value": usd_value,
+            "currency": "CNY",
+            "original_value": cny,
+            "is_converted": True,
+            "amount_kind": "monetary",
+        }
+    return None
+
+
+def parse_japanese_okuen_yen(raw: str, currency_to_usd_rate: dict[str, float]) -> dict[str, Any] | None:
+    m = re.search(r"(\d+(?:\.\d+)?)\s*[\u5104]\s*[\u5186]", clean_string(raw))
+    if not m:
+        return None
+    num = float(m.group(1))
+    jpy = num * 1e8
+    usd_value = convert_amount_to_usd(jpy, "JPY", currency_to_usd_rate)
+    if usd_value is None:
+        return None
+    return {
+        "usd_value": usd_value,
+        "currency": "JPY",
+        "original_value": jpy,
+        "is_converted": True,
+        "amount_kind": "monetary",
+    }
+
+
+def parse_inr_crore_from_string(raw: str, currency_to_usd_rate: dict[str, float]) -> dict[str, Any] | None:
+    s = clean_string(raw).lower().replace(",", "")
+    if not re.search(r"\bcrore|\bcr\b", s):
+        return None
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(?:crore|cr)\b", s)
+    if not m:
+        return None
+    num = float(m.group(1))
+    inr = num * 1e7
+    usd_value = convert_amount_to_usd(inr, "INR", currency_to_usd_rate)
+    if usd_value is None:
+        return None
+    return {
+        "usd_value": usd_value,
+        "currency": "INR",
+        "original_value": inr,
+        "is_converted": True,
+        "amount_kind": "monetary",
+    }
+
+
+def parse_western_yen_magnitude(raw: str, currency_to_usd_rate: dict[str, float]) -> dict[str, Any] | None:
+    m = re.search(
+        r"[¥\u00a5]\s*([\d,]+(?:\.\d+)?)\s*(million|billion|trillion)\b",
+        clean_string(raw),
+        re.I,
+    )
+    if not m:
+        return None
+    num = float(str(m.group(1)).replace(",", ""))
+    unit = m.group(2).lower()
+    if unit == "trillion":
+        num *= 1e12
+    elif unit == "billion":
+        num *= 1e9
+    elif unit == "million":
+        num *= 1e6
+    usd_value = convert_amount_to_usd(num, "JPY", currency_to_usd_rate)
+    if usd_value is None:
+        return None
+    return {
+        "usd_value": usd_value,
+        "currency": "JPY",
+        "original_value": num,
+        "is_converted": True,
+        "amount_kind": "monetary",
+    }
+
+
+def parse_structured_amount_string(raw: str, currency_to_usd_rate: dict[str, float]) -> dict[str, Any] | None:
+    if detect_non_financial_amount_text(raw):
+        return {
+            "usd_value": None,
+            "currency": "",
+            "original_value": None,
+            "is_converted": False,
+            "amount_kind": "non_monetary",
+        }
+    hit = parse_chinese_usd_yi_string(raw)
+    if hit:
+        return hit
+    hit = parse_chinese_cny_yi_string(raw, currency_to_usd_rate)
+    if hit:
+        return hit
+    hit = parse_japanese_okuen_yen(raw, currency_to_usd_rate)
+    if hit:
+        return hit
+    hit = parse_western_yen_magnitude(raw, currency_to_usd_rate)
+    if hit:
+        return hit
+    hit = parse_inr_crore_from_string(raw, currency_to_usd_rate)
+    if hit:
+        return hit
+    hit = parse_hyphenated_usd_magnitude(raw)
+    if hit:
+        return hit
+    hit = parse_parenthetical_usd_approximation(raw)
+    if hit:
+        return hit
+    return None
+
+
+def should_skip_trivial_usd_after_yen_lead(raw: str, candidate: str, match_index: int) -> bool:
+    m_yen = re.search(r"[¥\u00a5]", raw)
+    if not m_yen or match_index < m_yen.start():
+        return False
+    if re.search(r"\b(million|billion|trillion|thousand)\b", candidate, re.I):
+        return False
+    return True
+
+
 def parse_amount_info(value: Any, currency_to_usd_rate: dict[str, float]) -> dict[str, Any]:
     raw = clean_string(value)
     if not raw:
@@ -285,6 +529,7 @@ def parse_amount_info(value: Any, currency_to_usd_rate: dict[str, float]) -> dic
             "currency": "",
             "original_value": None,
             "is_converted": False,
+            "amount_kind": "unspecified",
         }
 
     normalized = raw.lower().replace(",", "").strip()
@@ -294,13 +539,37 @@ def parse_amount_info(value: Any, currency_to_usd_rate: dict[str, float]) -> dic
             "currency": "",
             "original_value": None,
             "is_converted": False,
+            "amount_kind": "unspecified",
         }
 
-    explicit_usd_candidates = [
-        *match_amount_candidates(raw, USD_PREFIX_PATTERN),
-        *match_amount_candidates(raw, USD_SUFFIX_PATTERN),
-    ]
-    for candidate in explicit_usd_candidates:
+    structured = parse_structured_amount_string(raw, currency_to_usd_rate)
+    if structured is not None:
+        return structured
+
+    hit = parse_western_yen_magnitude(raw, currency_to_usd_rate)
+    if hit:
+        return hit
+    hit = parse_inr_crore_from_string(raw, currency_to_usd_rate)
+    if hit:
+        return hit
+    hit = parse_chinese_usd_yi_string(raw)
+    if hit:
+        return hit
+    hit = parse_chinese_cny_yi_string(raw, currency_to_usd_rate)
+    if hit:
+        return hit
+    hit = parse_hyphenated_usd_magnitude(raw)
+    if hit:
+        return hit
+
+    usd_lead_pattern = re.compile(
+        r"(?:US\$|USD|\$)\s*\d[\d,]*(?:\.\d+)?(?:\s*[tmbk])?(?:\s*(?:trillion|tn|billion|bn|million|mn|thousand))?",
+        re.I,
+    )
+    for m in usd_lead_pattern.finditer(raw):
+        candidate = m.group(0)
+        if should_skip_trivial_usd_after_yen_lead(raw, candidate, m.start()):
+            continue
         parsed_candidate = parse_amount_candidate(candidate)
         if parsed_candidate is not None:
             return {
@@ -308,6 +577,21 @@ def parse_amount_info(value: Any, currency_to_usd_rate: dict[str, float]) -> dic
                 "currency": "USD",
                 "original_value": parsed_candidate,
                 "is_converted": False,
+                "amount_kind": "monetary",
+            }
+
+    for m in USD_SUFFIX_PATTERN.finditer(raw):
+        candidate = m.group(0)
+        if should_skip_trivial_usd_after_yen_lead(raw, candidate, m.start()):
+            continue
+        parsed_candidate = parse_amount_candidate(candidate)
+        if parsed_candidate is not None:
+            return {
+                "usd_value": parsed_candidate,
+                "currency": "USD",
+                "original_value": parsed_candidate,
+                "is_converted": False,
+                "amount_kind": "monetary",
             }
 
     currency = detect_amount_currency(raw)
@@ -323,6 +607,7 @@ def parse_amount_info(value: Any, currency_to_usd_rate: dict[str, float]) -> dic
             "currency": currency or "USD",
             "original_value": parsed_candidate,
             "is_converted": bool(currency and currency != "USD"),
+            "amount_kind": "monetary",
         }
 
     return {
@@ -330,6 +615,7 @@ def parse_amount_info(value: Any, currency_to_usd_rate: dict[str, float]) -> dic
         "currency": currency,
         "original_value": None,
         "is_converted": False,
+        "amount_kind": "unspecified",
     }
 
 
