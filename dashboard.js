@@ -761,11 +761,13 @@ function normalizeDeal(deal, fallbackNation) {
         AmountCurrency: amountInfo.currency,
         AmountOriginalValue: amountInfo.originalValue,
         AmountWasConverted: amountInfo.isConverted,
+        AmountKind: amountInfo.amountKind || 'unspecified',
         ExcludedReason: getDealExclusionReason({
             Startup_Name: deal.Startup_Name,
             Nation: nation,
             DateValue: dateValue,
-            AmountValue: amountInfo.usdValue
+            AmountValue: amountInfo.usdValue,
+            AmountKind: amountInfo.amountKind || 'unspecified'
         }),
         RoundFilter: normalizeCategoryValue(deal.Round),
         TierFilter: normalizeTierValue(deal.Tier),
@@ -1949,6 +1951,10 @@ function formatAmountInputValue(num) {
 }
 
 function formatDealAmountForTable(deal) {
+    if (deal.AmountKind === 'non_monetary') {
+        return cleanString(deal.Amount) || 'In-kind / non-monetary';
+    }
+
     if (Number.isFinite(deal.AmountOriginalValue)) {
         const currency = cleanString(deal.AmountCurrency) || 'USD';
         return `${currency} ${formatLargeNumber(deal.AmountOriginalValue)}`;
@@ -1996,6 +2002,207 @@ function parseAmount(value) {
     return parseAmountInfo(value).usdValue;
 }
 
+function detectNonFinancialAmountText(raw) {
+    const s = cleanString(raw).toLowerCase();
+    if (!s) return false;
+    if (/\(in-kind support\)|\bin-kind support\b|\bin kind support\b/.test(s)) {
+        return true;
+    }
+    if (/^\s*\d+\s+[^$€£¥₹]{0,80}\b(gpu|gpus)\b/i.test(cleanString(raw)) && !/\$\s*[\d,]+(?:\.\d+)?(?:[-–]|\s+)(million|billion)/i.test(raw)) {
+        return true;
+    }
+    return false;
+}
+
+function parseParentheticalUsdApproximation(raw) {
+    const m = cleanString(raw).match(/\(\s*approximately\s*\$?\s*([\d.,]+)\s*[–-]\s*([\d.,]+)\s*million\s*usd?\s*\)/i);
+    if (!m) return null;
+    const lo = Number(String(m[1]).replace(/,/g, ''));
+    const hi = Number(String(m[2]).replace(/,/g, ''));
+    if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
+    const midUsd = ((lo + hi) / 2) * 1e6;
+    return {
+        usdValue: midUsd,
+        currency: 'USD',
+        originalValue: midUsd,
+        isConverted: false,
+        amountKind: 'monetary'
+    };
+}
+
+function parseHyphenatedUsdMagnitude(raw) {
+    const m = cleanString(raw).match(/\$\s*([\d,]+(?:\.\d+)?)(?:[-–]|\s+)(million|billion|trillion|thousand)\b/i);
+    if (!m) return null;
+    let num = Number(String(m[1]).replace(/,/g, ''));
+    if (!Number.isFinite(num)) return null;
+    const unit = m[2].toLowerCase();
+    if (unit === 'trillion') num *= 1e12;
+    else if (unit === 'billion') num *= 1e9;
+    else if (unit === 'million') num *= 1e6;
+    else if (unit === 'thousand') num *= 1e3;
+    return {
+        usdValue: num,
+        currency: 'USD',
+        originalValue: num,
+        isConverted: false,
+        amountKind: 'monetary'
+    };
+}
+
+function parseChineseUsdYiString(raw) {
+    const s = cleanString(raw);
+    const patterns = [
+        /(?:超|超过)\s*(\d+(?:\.\d+)?)\s*亿\s*美元/u,
+        /(\d+(?:\.\d+)?)\s*亿\s*美元/u
+    ];
+    for (const re of patterns) {
+        const m = s.match(re);
+        if (!m) continue;
+        const num = Number(m[1]);
+        if (!Number.isFinite(num)) continue;
+        const usd = num * 1e8;
+        return {
+            usdValue: usd,
+            currency: 'USD',
+            originalValue: usd,
+            isConverted: false,
+            amountKind: 'monetary'
+        };
+    }
+    return null;
+}
+
+function parseChineseCnyYiString(raw) {
+    const s = cleanString(raw);
+    const patterns = [
+        /(?:超|超过)\s*(\d+(?:\.\d+)?)\s*亿\s*元/u,
+        /(\d+(?:\.\d+)?)\s*亿\s*元/u,
+        /(?:超|超过)\s*(\d+(?:\.\d+)?)\s*亿\s*人民币/u,
+        /(\d+(?:\.\d+)?)\s*亿\s*人民币/u
+    ];
+    for (const re of patterns) {
+        const m = s.match(re);
+        if (!m) continue;
+        const num = Number(m[1]);
+        if (!Number.isFinite(num)) continue;
+        const cny = num * 1e8;
+        const usdValue = convertAmountToUsd(cny, 'CNY');
+        if (!Number.isFinite(usdValue)) return null;
+        return {
+            usdValue,
+            currency: 'CNY',
+            originalValue: cny,
+            isConverted: true,
+            amountKind: 'monetary'
+        };
+    }
+    return null;
+}
+
+function parseWesternYenMagnitude(raw) {
+    const s = cleanString(raw);
+    const m = s.match(/[¥\u00a5]\s*([\d,]+(?:\.\d+)?)\s*(million|billion|trillion)\b/i);
+    if (!m) return null;
+    let num = Number(String(m[1]).replace(/,/g, ''));
+    if (!Number.isFinite(num)) return null;
+    const unit = m[2].toLowerCase();
+    if (unit === 'trillion') num *= 1e12;
+    else if (unit === 'billion') num *= 1e9;
+    else if (unit === 'million') num *= 1e6;
+    const usdValue = convertAmountToUsd(num, 'JPY');
+    if (!Number.isFinite(usdValue)) return null;
+    return {
+        usdValue,
+        currency: 'JPY',
+        originalValue: num,
+        isConverted: true,
+        amountKind: 'monetary'
+    };
+}
+
+function parseJapaneseOkuenYen(raw) {
+    const s = cleanString(raw);
+    const m = s.match(/(\d+(?:\.\d+)?)\s*[\u5104]\s*[\u5186]/);
+    if (!m) return null;
+    const num = Number(m[1]);
+    if (!Number.isFinite(num)) return null;
+    const jpy = num * 1e8;
+    const usdValue = convertAmountToUsd(jpy, 'JPY');
+    if (!Number.isFinite(usdValue)) return null;
+    return {
+        usdValue,
+        currency: 'JPY',
+        originalValue: jpy,
+        isConverted: true,
+        amountKind: 'monetary'
+    };
+}
+
+function parseInrCroreFromString(raw) {
+    const s = cleanString(raw).toLowerCase().replace(/,/g, '');
+    if (!/\bcrore|\bcr\b/.test(s)) return null;
+    const m = s.match(/(\d+(?:\.\d+)?)\s*(?:crore|cr)\b/);
+    if (!m) return null;
+    const num = Number(m[1]);
+    if (!Number.isFinite(num)) return null;
+    const inr = num * 1e7;
+    const usdValue = convertAmountToUsd(inr, 'INR');
+    if (!Number.isFinite(usdValue)) return null;
+    return {
+        usdValue,
+        currency: 'INR',
+        originalValue: inr,
+        isConverted: true,
+        amountKind: 'monetary'
+    };
+}
+
+function parseStructuredAmountString(raw) {
+    if (detectNonFinancialAmountText(raw)) {
+        return {
+            usdValue: null,
+            currency: '',
+            originalValue: null,
+            isConverted: false,
+            amountKind: 'non_monetary'
+        };
+    }
+
+    const cjkUsd = parseChineseUsdYiString(raw);
+    if (cjkUsd) return cjkUsd;
+
+    const cjkCny = parseChineseCnyYiString(raw);
+    if (cjkCny) return cjkCny;
+
+    const jp = parseJapaneseOkuenYen(raw);
+    if (jp) return jp;
+
+    const jpyWest = parseWesternYenMagnitude(raw);
+    if (jpyWest) return jpyWest;
+
+    const inrCr = parseInrCroreFromString(raw);
+    if (inrCr) return inrCr;
+
+    const hyphenUsd = parseHyphenatedUsdMagnitude(raw);
+    if (hyphenUsd) return hyphenUsd;
+
+    const parenUsd = parseParentheticalUsdApproximation(raw);
+    if (parenUsd) return parenUsd;
+
+    return null;
+}
+
+function shouldSkipTrivialUsdAfterYenLead(raw, candidate, matchIndex) {
+    const yenPos = raw.search(/[¥\u00a5]/);
+    if (yenPos < 0 || matchIndex < yenPos) {
+        return false;
+    }
+    if (/\b(million|billion|trillion|thousand)\b/i.test(candidate)) {
+        return false;
+    }
+    return true;
+}
+
 function parseAmountInfo(value) {
     const raw = cleanString(value);
     if (!raw) {
@@ -2003,7 +2210,8 @@ function parseAmountInfo(value) {
             usdValue: null,
             currency: '',
             originalValue: null,
-            isConverted: false
+            isConverted: false,
+            amountKind: 'unspecified'
         };
     }
 
@@ -2014,28 +2222,71 @@ function parseAmountInfo(value) {
             usdValue: null,
             currency: '',
             originalValue: null,
-            isConverted: false
+            isConverted: false,
+            amountKind: 'unspecified'
         };
     }
 
-    const explicitUsdCandidates = [
-        ...matchAmountCandidates(raw, /(?:US\$|USD|\$)\s*\d[\d,]*(?:\.\d+)?(?:\s*(?:trillion|tn|billion|bn|million|mn|thousand|k|[tmb]))?/gi),
-        ...matchAmountCandidates(raw, /\d[\d,]*(?:\.\d+)?(?:\s*(?:trillion|tn|billion|bn|million|mn|thousand|k|[tmb]))?\s*(?:US\$|USD)/gi)
-    ];
+    const structured = parseStructuredAmountString(raw);
+    if (structured) {
+        return structured;
+    }
 
-    for (const candidate of explicitUsdCandidates) {
+    const rescueYen = parseWesternYenMagnitude(raw);
+    if (rescueYen) {
+        return rescueYen;
+    }
+    const rescueInr = parseInrCroreFromString(raw);
+    if (rescueInr) {
+        return rescueInr;
+    }
+    const rescueCn = parseChineseUsdYiString(raw);
+    if (rescueCn) {
+        return rescueCn;
+    }
+    const rescueCnyYi = parseChineseCnyYiString(raw);
+    if (rescueCnyYi) {
+        return rescueCnyYi;
+    }
+    const rescueHyphenUsd = parseHyphenatedUsdMagnitude(raw);
+    if (rescueHyphenUsd) {
+        return rescueHyphenUsd;
+    }
+
+    const usdLeadPattern = /(?:US\$|USD|\$)\s*\d[\d,]*(?:\.\d+)?(?:\s*[tmbk])?(?:\s*(?:trillion|tn|billion|bn|million|mn|thousand))?/gi;
+    let usdMatch;
+    while ((usdMatch = usdLeadPattern.exec(raw)) !== null) {
+        const candidate = usdMatch[0];
+        if (shouldSkipTrivialUsdAfterYenLead(raw, candidate, usdMatch.index)) {
+            continue;
+        }
         const parsedCandidate = parseAmountCandidate(candidate);
         if (Number.isFinite(parsedCandidate)) {
             return {
                 usdValue: parsedCandidate,
                 currency: 'USD',
                 originalValue: parsedCandidate,
-                isConverted: false
+                isConverted: false,
+                amountKind: 'monetary'
+            };
+        }
+    }
+
+    const explicitUsdSuffix = matchAmountCandidates(raw, /\d[\d,]*(?:\.\d+)?(?:\s*[tmbk])?(?:\s*(?:trillion|tn|billion|bn|million|mn|thousand))?\s*(?:US\$|USD)/gi);
+    for (const candidate of explicitUsdSuffix) {
+        const parsedCandidate = parseAmountCandidate(candidate);
+        if (Number.isFinite(parsedCandidate)) {
+            return {
+                usdValue: parsedCandidate,
+                currency: 'USD',
+                originalValue: parsedCandidate,
+                isConverted: false,
+                amountKind: 'monetary'
             };
         }
     }
     const currency = detectAmountCurrency(raw);
-    const genericCandidates = matchAmountCandidates(raw, /\d[\d,]*(?:\.\d+)?(?:\s*(?:trillion|tn|billion|bn|million|mn|thousand|k|[tmb]))?/gi);
+    const genericCandidates = matchAmountCandidates(raw, /\d[\d,]*(?:\.\d+)?(?:\s*[tmbk])?(?:\s*(?:trillion|tn|billion|bn|million|mn|thousand))?/gi);
 
     for (const candidate of genericCandidates) {
         const parsedCandidate = parseAmountCandidate(candidate);
@@ -2045,7 +2296,8 @@ function parseAmountInfo(value) {
                 usdValue,
                 currency: currency || 'USD',
                 originalValue: parsedCandidate,
-                isConverted: Boolean(currency && currency !== 'USD')
+                isConverted: Boolean(currency && currency !== 'USD'),
+                amountKind: 'monetary'
             };
         }
     }
@@ -2054,7 +2306,8 @@ function parseAmountInfo(value) {
         usdValue: null,
         currency,
         originalValue: null,
-        isConverted: false
+        isConverted: false,
+        amountKind: 'unspecified'
     };
 }
 
@@ -2075,14 +2328,26 @@ function parseAmountCandidate(value) {
         return null;
     }
 
-    if (/\btrillion\b/.test(normalized) || /\btn\b/.test(normalized) || /(?<![a-z])t(?![a-z])/.test(normalized)) {
+    if (/\btrillion\b/.test(normalized) || /\btn\b/.test(normalized)) {
         numericValue *= 1e12;
-    } else if (/\bbillion\b/.test(normalized) || /\bbn\b/.test(normalized) || /(?<![a-z])b(?![a-z])/.test(normalized)) {
+    } else if (/\bbillion\b/.test(normalized) || /\bbn\b/.test(normalized)) {
         numericValue *= 1e9;
-    } else if (/\bmillion\b/.test(normalized) || /\bmn\b/.test(normalized) || /(?<![a-z])m(?![a-z])/.test(normalized)) {
+    } else if (/\bmillion\b/.test(normalized) || /\bmn\b/.test(normalized)) {
         numericValue *= 1e6;
-    } else     if (/\bthousand\b/.test(normalized) || /(?<![a-z])k(?![a-z])/.test(normalized)) {
+    } else if (/\bthousand\b/.test(normalized) || /(?<![a-z])k(?![a-z])/.test(normalized)) {
         numericValue *= 1e3;
+    } else if (/(?<=\d)\s+m(?![a-z])/i.test(normalized)) {
+        numericValue *= 1e6;
+    } else if (/(?<=\d)\s+b(?![a-z])/i.test(normalized)) {
+        numericValue *= 1e9;
+    } else if (/(?<=\d)\s+t(?![a-z])/i.test(normalized)) {
+        numericValue *= 1e12;
+    } else if (/(?<=\d)t(?![a-z])/i.test(normalized)) {
+        numericValue *= 1e12;
+    } else if (/(?<=\d)b(?![a-z])/i.test(normalized)) {
+        numericValue *= 1e9;
+    } else if (/(?<=\d)m(?![a-z])/i.test(normalized)) {
+        numericValue *= 1e6;
     }
 
     if (/\bcrore\b|\bcr\b/.test(normalized)) {
@@ -2114,10 +2379,22 @@ function convertAmountToUsd(value, currency) {
 }
 
 function detectAmountCurrency(value) {
-    const cleaned = cleanString(value).toUpperCase();
+    const raw = cleanString(value);
+    const cleaned = raw.toUpperCase();
 
     if (!cleaned) {
         return '';
+    }
+
+    if (/[\u5104]\s*[\u5186]/.test(raw)) {
+        return 'JPY';
+    }
+    if (/\b(CRORE|CR)\b/i.test(raw) || /₹/.test(raw) || /\bINR\b/i.test(cleaned)) {
+        return 'INR';
+    }
+
+    if (/\u4ebf\s*\u5143/u.test(raw) || /\u4ebf\s*\u4eba\u6c11\u5e01/u.test(raw) || /\bRMB\b/i.test(cleaned)) {
+        return 'CNY';
     }
 
     if (/(?:US\$|USD|\$)/.test(cleaned)) {
@@ -2154,6 +2431,10 @@ function detectAmountCurrency(value) {
 function getDealExclusionReason(deal) {
     if (Number.isFinite(deal.AmountValue) && deal.AmountValue > MAX_REALISTIC_DEAL_AMOUNT) {
         return `Amount exceeds safety cap of ${formatCurrencyCompact(MAX_REALISTIC_DEAL_AMOUNT)}`;
+    }
+
+    if (deal.AmountKind === 'non_monetary' || deal.AmountKind === 'unspecified') {
+        return '';
     }
 
     if (Number.isFinite(deal.AmountValue) && deal.AmountValue > 0 && deal.AmountValue < MIN_REALISTIC_DEAL_AMOUNT) {
